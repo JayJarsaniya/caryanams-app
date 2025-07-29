@@ -1,18 +1,10 @@
 // api.ts
 // src/lib/api.ts
+import { LookupStage } from "@/types/types";
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL!;
 const API_KEY = process.env.NEXT_PUBLIC_API_KEY!;
 
 // Re-defining (or ensuring consistency with) types from page.tsx for clarity in api.ts
-interface MatchCondition {
-  [key: string]: string | { $regex: string; $options: string } | MatchCondition[];
-}
-
-interface LookupStage {
-  $match?: MatchCondition | { $and: MatchCondition[] };
-  $skip?: number;
-  $limit?: number;
-}
 
 interface FetchParams {
   dbName: string;
@@ -23,7 +15,7 @@ interface FetchParams {
   skip?: number;
   sortBy?: string;
   order?: "asc" | "desc";
-  lookups?: LookupStage[]; 
+  lookups?: LookupStage[];
 }
 
 export async function fetchFromAPI<T>({

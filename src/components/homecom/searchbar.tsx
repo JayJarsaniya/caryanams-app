@@ -70,7 +70,7 @@ interface CacheData<T> {
   timestamp: number;
 }
 
-const CACHE_KEY_BRANDS = "caryanams_brands";
+const CACHE_KEY_BRANDS = "brandsData"; // Match Header's cache key
 const CACHE_KEY_MODELS = "caryanams_models";
 const CACHE_DURATION = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
 
@@ -120,40 +120,27 @@ export default function SearchBar() {
       setIsFetching(true);
       setError(null);
 
-      // Check cache for brands
+      // Check cache for brands (reusing Header's cache)
       const cachedBrands = getCachedData<Brand[]>(CACHE_KEY_BRANDS);
       if (cachedBrands) {
-        setBrands(cachedBrands.data);
-      }
-
-      // Check cache for models
-      const cachedModels = getCachedData<Model[]>(CACHE_KEY_MODELS);
-      if (cachedModels) {
-        setModels(cachedModels.data);
-      }
-
-      // Fetch data if cache is missing or expired
-      if (!cachedBrands || !cachedModels) {
+        const brandData = cachedBrands.data.filter(isBrand);
+        setBrands(brandData);
+        console.log(
+          "Using cached brands from Header:",
+          brandData.map((b) => ({
+            _id: b._id,
+            brandname: b.sectionData.brand.brandname,
+          }))
+        );
+      } else {
+        // Fallback to API if no cache (should be rare since Header fetches it)
         try {
-          const [brandResponse, modelResponse] = await Promise.all([
-            !cachedBrands
-              ? fetchFromAPI({
-                  dbName: "caryanams",
-                  collectionName: "brand",
-                  limit: 0,
-                })
-              : Promise.resolve(cachedBrands?.data),
-            !cachedModels
-              ? fetchFromAPI({
-                  dbName: "caryanams",
-                  collectionName: "model",
-                  limit: 0,
-                })
-              : Promise.resolve(cachedModels?.data),
-          ]);
-
-          // Process brands
-          if (!cachedBrands && Array.isArray(brandResponse)) {
+          const brandResponse = await fetchFromAPI({
+            dbName: "caryanams",
+            collectionName: "brand",
+            limit: 0,
+          });
+          if (Array.isArray(brandResponse)) {
             const brandData = brandResponse.filter(isBrand);
             setBrands(brandData);
             setCachedData(CACHE_KEY_BRANDS, brandData);
@@ -165,9 +152,34 @@ export default function SearchBar() {
               }))
             );
           }
+        } catch (err) {
+          setError("Failed to load brands");
+          console.error("Error fetching brands:", err);
+        }
+      }
 
-          // Process models
-          if (!cachedModels && Array.isArray(modelResponse)) {
+      // Check cache for models
+      const cachedModels = getCachedData<Model[]>(CACHE_KEY_MODELS);
+      if (cachedModels) {
+        const modelData = cachedModels.data.filter(isModel);
+        setModels(modelData);
+        console.log(
+          "Using cached models:",
+          modelData.map((m) => ({
+            _id: m._id,
+            name: m.sectionData.model.name,
+            companyId: m.sectionData.model.companyId,
+          }))
+        );
+      } else {
+        // Fetch models if no cache
+        try {
+          const modelResponse = await fetchFromAPI({
+            dbName: "caryanams",
+            collectionName: "model",
+            limit: 0,
+          });
+          if (Array.isArray(modelResponse)) {
             const modelData = modelResponse.filter(isModel);
             setModels(modelData);
             setCachedData(CACHE_KEY_MODELS, modelData);
@@ -181,8 +193,8 @@ export default function SearchBar() {
             );
           }
         } catch (err) {
-          setError("Failed to load data");
-          console.error("Error fetching data:", err);
+          setError("Failed to load models");
+          console.error("Error fetching models:", err);
         }
       }
 
@@ -255,7 +267,7 @@ export default function SearchBar() {
       {/* Make Dropdown (Brand) */}
       <div className="flex flex-col w-full sm:w-1/4">
         <label className="text-sm font-semibold text-gray-800 mb-1">
-          Make (Brand)
+          Select (Brand)
         </label>
         {isFetching ? (
           <div className="h-10 bg-gray-200 animate-pulse rounded-lg"></div>

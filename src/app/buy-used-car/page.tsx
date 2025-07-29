@@ -1,10 +1,10 @@
-
 "use client";
 
 import React, { useState, useEffect, Suspense } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { useParams } from "next/navigation";
+import { fetchFromAPI } from "@/lib/api";
 import {
   FaGasPump,
   FaTachometerAlt,
@@ -13,7 +13,6 @@ import {
   FaPhoneAlt,
 } from "react-icons/fa";
 import { MdLocalOffer } from "react-icons/md";
-import { fetchFromAPI } from "@/lib/api";
 
 interface UsedCar {
   _id: string;
@@ -261,6 +260,8 @@ const BuyUsedCarPageContent = () => {
 
   const [cars, setCars] = useState<UsedCar[]>([]);
   const [filteredCars, setFilteredCars] = useState<UsedCar[]>([]);
+  // The displayBrandName and displayModelName are not strictly necessary if you're always showing all cars
+  // but keeping them for consistency and potential future filtering based on direct navigation
   const [displayBrandName, setDisplayBrandName] = useState("");
   const [displayModelName, setDisplayModelName] = useState("");
   const [loading, setLoading] = useState(true);
@@ -275,119 +276,135 @@ const BuyUsedCarPageContent = () => {
   const [regYearOpen, setRegYearOpen] = useState(false);
   const [colorOpen, setColorOpen] = useState(false);
   const [selectedFuelTypes, setSelectedFuelTypes] = useState<string[]>([]);
-  const [selectedTransmissions, setSelectedTransmissions] = useState<string[]>([]);
+  const [selectedTransmissions, setSelectedTransmissions] = useState<string[]>(
+    []
+  );
   const [selectedPriceRanges, setSelectedPriceRanges] = useState<string[]>([]);
   const [selectedRegYears, setSelectedRegYears] = useState<string[]>([]);
   const [selectedColors, setSelectedColors] = useState<string[]>([]);
 
   useEffect(() => {
     async function loadData() {
-      if (slug.length === 0) {
-        try {
-          const data = await fetchFromAPI<UsedCar>({
-            dbName: "caryanams",
-            collectionName: "usedcar",
-            limit: 0,
-            filters: {},
-          });
-          const validCars = Array.isArray(data) ? data.filter(isUsedCar) : [];
-          setCars(validCars);
-          setFilteredCars(validCars);
-          setLoading(false);
-        } catch (err) {
-          console.error("Error fetching data:", err);
-          setError("Failed to load cars. Please try again.");
-          setLoading(false);
-        }
-        return;
-      }
+      setLoading(true);
+      setError(null);
 
       try {
-        const [brandRes, modelRes] = await Promise.all([
-          fetchFromAPI<Brand>({
-            dbName: "caryanams",
-            collectionName: "brand",
-            limit: 0,
-          }),
-          fetchFromAPI<Model>({
-            dbName: "caryanams",
-            collectionName: "model",
-            limit: 0,
-          }),
-        ]);
+        let allCars: UsedCar[] = [];
+        let brands: Brand[] = [];
+        let models: Model[] = [];
 
-        const brands = Array.isArray(brandRes) ? brandRes.filter(isBrand) : [];
-        const models = Array.isArray(modelRes) ? modelRes.filter(isModel) : [];
-
-        const selectedBrand = brandName
-          ? brands.find(
-              (b) =>
-                b.sectionData.brand.brandname.toLowerCase().trim() ===
-                brandName.toLowerCase().trim()
-            )
-          : null;
-        const brandId = selectedBrand ? selectedBrand._id : "";
-        setDisplayBrandName(
-          selectedBrand
-            ? selectedBrand.sectionData.brand.brandname
-            : brandName || ""
-        );
-
-        const selectedModel = modelName
-          ? models.find(
-              (m) =>
-                m.sectionData.model.name.toLowerCase().trim() ===
-                  modelName.toLowerCase().trim() &&
-                (!brandId || m.sectionData.model.companyId === brandId)
-            )
-          : null;
-        const modelId = selectedModel ? selectedModel._id : "";
-        setDisplayModelName(
-          selectedModel ? selectedModel.sectionData.model.name : modelName || ""
-        );
-
-        const filters: {
-          [key: string]: string | { $regex: string; $options: string };
-        } = {};
-        if (brandId) filters["sectionData.usedcar.company"] = brandId;
-        if (modelId) filters["sectionData.usedcar.model"] = modelId;
-        if (city)
-          filters["sectionData.usedcar.registrationcity"] = {
-            $regex: `^${city.trim()}$`,
-            $options: "i",
-          };
-
-        const data = await fetchFromAPI<UsedCar>({
+        // Always fetch all cars when on the /buy-used-car page
+        const carData = await fetchFromAPI<UsedCar>({
           dbName: "caryanams",
           collectionName: "usedcar",
           limit: 0,
-          filters,
+          filters: {},
         });
+        allCars = Array.isArray(carData) ? carData.filter(isUsedCar) : [];
+        setCars(allCars);
+        setFilteredCars(allCars);
 
-        const validCars = Array.isArray(data) ? data.filter(isUsedCar) : [];
-        const matchedCars = validCars.filter((car) => {
-          const { company, model, registrationcity } = car.sectionData.usedcar;
-          const brandMatch = brandName
-            ? brands
-                .find((b) => b._id === company)
-                ?.sectionData.brand.brandname.toLowerCase()
-                .trim() === brandName.toLowerCase().trim()
-            : true;
-          const modelMatch = modelName
-            ? models
-                .find((m) => m._id === model)
-                ?.sectionData.model.name.toLowerCase()
-                .trim() === modelName.toLowerCase().trim()
-            : true;
-          const cityMatch = city
-            ? registrationcity.toLowerCase().trim() ===
-              city.toLowerCase().trim()
-            : true;
-          return brandMatch && modelMatch && cityMatch;
-        });
+        // Fetch brands and models for display names if slugs are present
+        if (slug.length > 0) {
+          const cachedBrands = localStorage.getItem("caryanams_brands");
+          if (cachedBrands) {
+            const { data, timestamp } = JSON.parse(cachedBrands);
+            const isFresh = Date.now() - timestamp < 24 * 60 * 60 * 1000;
+            if (isFresh) {
+              brands = Array.isArray(data) ? data.filter(isBrand) : [];
+            }
+          }
 
-        setCars(matchedCars);
-        setFilteredCars(matchedCars);
+          const cachedModels = localStorage.getItem("caryanams_models");
+          if (cachedModels) {
+            const { data, timestamp } = JSON.parse(cachedModels);
+            const isFresh = Date.now() - timestamp < 24 * 60 * 60 * 1000;
+            if (isFresh) {
+              models = Array.isArray(data) ? data.filter(isModel) : [];
+            }
+          }
+
+          if (!brands.length || !models.length) {
+            const [brandRes, modelRes] = await Promise.all([
+              brands.length
+                ? Promise.resolve(brands)
+                : fetchFromAPI<Brand>({
+                    dbName: "caryanams",
+                    collectionName: "brand",
+                    limit: 0,
+                  }),
+              models.length
+                ? Promise.resolve(models)
+                : fetchFromAPI<Model>({
+                    dbName: "caryanams",
+                    collectionName: "model",
+                    limit: 0,
+                  }),
+            ]);
+            brands = Array.isArray(brandRes) ? brandRes.filter(isBrand) : [];
+            models = Array.isArray(modelRes) ? modelRes.filter(isModel) : [];
+
+            if (!cachedBrands || !cachedBrands.includes("timestamp")) {
+              localStorage.setItem(
+                "caryanams_brands",
+                JSON.stringify({ data: brands, timestamp: Date.now() })
+              );
+            }
+            if (!cachedModels || !cachedModels.includes("timestamp")) {
+              localStorage.setItem(
+                "caryanams_models",
+                JSON.stringify({ data: models, timestamp: Date.now() })
+              );
+            }
+          }
+
+          const selectedBrand = brandName
+            ? brands.find(
+                (b) =>
+                  b.sectionData.brand.brandname.toLowerCase().trim() ===
+                  brandName.toLowerCase().trim()
+              )
+            : null;
+          setDisplayBrandName(
+            selectedBrand
+              ? selectedBrand.sectionData.brand.brandname
+              : brandName || ""
+          );
+
+          const selectedModel = modelName
+            ? models.find(
+                (m) =>
+                  m.sectionData.model.name.toLowerCase().trim() ===
+                    modelName.toLowerCase().trim() &&
+                  (!selectedBrand ||
+                    m.sectionData.model.companyId === selectedBrand._id)
+              )
+            : null;
+          setDisplayModelName(
+            selectedModel
+              ? selectedModel.sectionData.model.name
+              : modelName || ""
+          );
+
+          // Apply URL-based filters
+          const urlFiltered = allCars.filter((car) => {
+            const carBrandId = car.sectionData.usedcar.company;
+            const carModelId = car.sectionData.usedcar.model;
+            const carCity = car.sectionData.usedcar.registrationcity
+              .toLowerCase()
+              .trim();
+
+            const brandMatch =
+              !brandName || (selectedBrand && carBrandId === selectedBrand._id);
+            const modelMatch =
+              !modelName || (selectedModel && carModelId === selectedModel._id);
+            const cityMatch = !city || carCity === city.toLowerCase().trim();
+
+            return brandMatch && modelMatch && cityMatch;
+          });
+          setFilteredCars(urlFiltered);
+          setCars(urlFiltered);
+        }
       } catch (err) {
         console.error("Error fetching data:", err);
         setError("Failed to load cars. Please try again.");
@@ -397,9 +414,9 @@ const BuyUsedCarPageContent = () => {
     }
 
     loadData();
-  }, [brandName, modelName, city, slug.length]);
-
+  }, [slug.length, brandName, modelName, city]); // Added brandName, modelName, city
   useEffect(() => {
+    // This effect handles the sidebar filtering
     const filtered = cars.filter((car) => {
       const { usedcar } = car.sectionData;
       const price = parseInt(usedcar.baseprice.replace(/[^\d]/g, ""));
@@ -440,9 +457,9 @@ const BuyUsedCarPageContent = () => {
       );
     });
     setFilteredCars(filtered);
-    setCurrentPage(1);
+    setCurrentPage(1); // Reset to first page on filter change
   }, [
-    cars,
+    cars, // Now depends on 'cars' which is the *initially loaded set* or URL-filtered set
     selectedFuelTypes,
     selectedTransmissions,
     selectedPriceRanges,
@@ -472,6 +489,7 @@ const BuyUsedCarPageContent = () => {
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
+  // Pagination now uses filteredCars.length
   const totalPages = Math.ceil(filteredCars.length / carsPerPage);
   const paginatedCars = filteredCars.slice(
     (currentPage - 1) * carsPerPage,
@@ -479,23 +497,20 @@ const BuyUsedCarPageContent = () => {
   );
 
   function generateCarSlug(car: UsedCar): string {
-  const data = car.sectionData.usedcar;
-  const model = data.carname || "model";
-  const variant = data.transmission || "variant";
-  const year = data.registrationyear || "year";
+    const carData = car.sectionData.usedcar;
+    const modelName = carData.carname || "car";
+    const year = carData.registrationyear || "year";
+    const variant = carData.transmission || "variant";
 
-  const slug = [ model, variant, year]
-    .map((str) =>
+    const parts = [modelName, variant, year].map((str) =>
       str
         .toLowerCase()
         .replace(/\s+/g, "-")
         .replace(/[^a-z0-9-]/g, "")
-    )
-    .join("-");
+    );
 
-  return slug;
-}
-
+    return parts.join("-");
+  }
 
   if (error) {
     return (
@@ -604,64 +619,67 @@ const BuyUsedCarPageContent = () => {
           ) : (
             <>
               <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-6">
-                {paginatedCars.map((car) => (
-                  <div
-                    key={car._id}
-                    className="bg-white rounded-xl shadow border overflow-hidden"
-                  >
-                    <Image
-                      src={
-                        car.sectionData.usedcar.images[0] || "/placeholder.png"
-                      }
-                      alt={car.sectionData.usedcar.carname}
-                      width={400}
-                      height={224}
-                      className="object-cover w-full h-56"
-                    />
-                    <div className="p-4">
-                      <h3 className="text-sm font-semibold mb-1">
-                        {car.sectionData.usedcar.carname}
-                      </h3>
-                      <div className="text-xs text-gray-600 flex items-center gap-2 mb-2">
-                        <FaMapMarkerAlt />{" "}
-                        {car.sectionData.usedcar.registrationcity}
-                        <span>| {car.sectionData.usedcar.ownership}</span>
+                {paginatedCars.map((car) => {
+                  const slug = generateCarSlug(car);
+                  return (
+                    <div
+                      key={car._id}
+                      className="bg-white rounded-xl shadow border overflow-hidden"
+                    >
+                      <Image
+                        src={
+                          car.sectionData.usedcar.images[0] ||
+                          "/placeholder.png"
+                        }
+                        alt={car.sectionData.usedcar.carname}
+                        width={400}
+                        height={224}
+                        className="object-cover w-full h-56"
+                      />
+                      <div className="p-4">
+                        <h3 className="text-sm font-semibold mb-1">
+                          {car.sectionData.usedcar.carname}
+                        </h3>
+                        <div className="text-xs text-gray-600 flex items-center gap-2 mb-2">
+                          <FaMapMarkerAlt />
+                          {car.sectionData.usedcar.registrationcity}
+                          <span>| {car.sectionData.usedcar.ownership}</span>
+                        </div>
+                        <div className="flex gap-3 text-xs text-gray-600 mb-4">
+                          <span className="flex items-center gap-1">
+                            <FaGasPump /> {car.sectionData.usedcar.fueltype}
+                          </span>
+                          <span className="flex items-center gap-1">
+                            <FaTachometerAlt />
+                            {car.sectionData.usedcar.kilometerdriven} km
+                          </span>
+                          <span className="flex items-center gap-1">
+                            <FaCogs /> {car.sectionData.usedcar.transmission}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-3 mb-2">
+                          <span className="text-blue-900 font-bold text-lg">
+                            ₹
+                            {parseInt(
+                              car.sectionData.usedcar.baseprice
+                            ).toLocaleString("en-IN")}
+                          </span>
+                          <button
+                            className="flex items-center gap-1 text-red-600 border border-red-500 px-3 py-1 text-xs rounded hover:bg-red-100"
+                            aria-label={`Make an offer for ${car.sectionData.usedcar.carname}`}
+                          >
+                            <MdLocalOffer /> MAKE OFFER
+                          </button>
+                        </div>
+                        <Link href={`/used/${slug}/${car._id}`}>
+                          <button className="w-full bg-gradient-to-r from-[#004c97] to-[#d2ae42] text-white py-2 rounded-md flex justify-center items-center gap-2">
+                            <FaPhoneAlt /> Contact Seller
+                          </button>
+                        </Link>
                       </div>
-                      <div className="flex gap-3 text-xs text-gray-600 mb-4">
-                        <span className="flex items-center gap-1">
-                          <FaGasPump /> {car.sectionData.usedcar.fueltype}
-                        </span>
-                        <span className="flex items-center gap-1">
-                          <FaTachometerAlt />{" "}
-                          {car.sectionData.usedcar.kilometerdriven} km
-                        </span>
-                        <span className="flex items-center gap-1">
-                          <FaCogs /> {car.sectionData.usedcar.transmission}
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-3 mb-2">
-                        <span className="text-blue-900 font-bold text-lg">
-                          ₹
-                          {parseInt(
-                            car.sectionData.usedcar.baseprice
-                          ).toLocaleString("en-IN")}
-                        </span>
-                        <button
-                          className="flex items-center gap-1 text-red-600 border border-red-500 px-3 py-1 text-xs rounded hover:bg-red-100"
-                          aria-label={`Make an offer for ${car.sectionData.usedcar.carname}`}
-                        >
-                          <MdLocalOffer /> MAKE OFFER
-                        </button>
-                      </div>
-                      <Link href={`/used/${generateCarSlug(car)}/${car._id}`}>
-
-                        <button className="w-full bg-gradient-to-r from-[#004c97] to-[#d2ae42] text-white py-2 rounded-md flex justify-center items-center gap-2">
-                          <FaPhoneAlt /> Contact Seller
-                        </button>
-                      </Link>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
               {totalPages > 1 && (
                 <Pagination

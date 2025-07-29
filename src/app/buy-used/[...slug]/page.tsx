@@ -1,11 +1,13 @@
 // page.tsx
 "use client";
 
-import React, { useState, useEffect, Suspense } from "react";
+import React, { useState, useEffect, Suspense, useRef } from "react"; // Add useRef
 import Image from "next/image";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { fetchFromAPI } from "@/lib/api";
+import { MatchCondition, LookupStage } from "@/types/types"; // Make sure these are correctly imported and not locally declared
+
 import {
   FaGasPump,
   FaTachometerAlt,
@@ -201,7 +203,14 @@ const FilterSection = ({
       onClick={() => setIsOpen(!isOpen)}
       aria-label={`Toggle ${title} filter`}
     >
-      <span className="font-semibold text-sm text-gray-800">{title}</span>
+      <span className="font-semibold text-sm text-gray-800">
+        {title}
+        {selectedOptions.length > 0 && (
+          <span className="ml-2 text-blue-600 text-xs">
+            ({selectedOptions.length})
+          </span>
+        )}
+      </span>
       <span className="text-red-600 font-bold text-lg">
         {isOpen ? "−" : "+"}
       </span>
@@ -254,23 +263,11 @@ const CarCardSkeleton = () => (
   </div>
 );
 
-// Define an interface for the match conditions
-interface MatchCondition {
-  [key: string]: string | { $regex: string; $options: string } | MatchCondition[];
-}
-
-// Define an interface for the $match stage in the aggregation pipeline
+// Move MatchStage interface here if it's not already in types.ts
+// If you moved it to types.ts, remove it from here.
 interface MatchStage {
   $match: MatchCondition | { $and: MatchCondition[] };
 }
-
-// Define an interface for the entire lookup stage array
-interface LookupStage {
-  $match?: MatchCondition | { $and: MatchCondition[] };
-  $skip?: number;
-  $limit?: number;
-}
-
 
 const FilterPageContent = () => {
   const params = useParams() as { slug?: string[] };
@@ -278,21 +275,23 @@ const FilterPageContent = () => {
   const [brandName, modelName, city] = slug.map(decodeURIComponent);
 
   const [cars, setCars] = useState<UsedCar[]>([]);
-  const [filteredCars, setFilteredCars] = useState<UsedCar[]>([]);
-  const [totalCount, setTotalCount] = useState(0);
+  const [totalFilteredCount, setTotalFilteredCount] = useState(0);
   const [displayBrandName, setDisplayBrandName] = useState("");
   const [displayModelName, setDisplayModelName] = useState("");
   const [loading, setLoading] = useState(true);
+  const [loadingCount, setLoadingCount] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const carsPerPage = 12;
 
+  // Filter states
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [fuelOpen, setFuelOpen] = useState(false);
   const [transmissionOpen, setTransmissionOpen] = useState(false);
   const [priceOpen, setPriceOpen] = useState(false);
   const [regYearOpen, setRegYearOpen] = useState(false);
   const [colorOpen, setColorOpen] = useState(false);
+
   const [selectedFuelTypes, setSelectedFuelTypes] = useState<string[]>([]);
   const [selectedTransmissions, setSelectedTransmissions] = useState<string[]>(
     []
@@ -301,6 +300,23 @@ const FilterPageContent = () => {
   const [selectedRegYears, setSelectedRegYears] = useState<string[]>([]);
   const [selectedColors, setSelectedColors] = useState<string[]>([]);
 
+  // Filter options derived from cars
+  const [filterOptions, setFilterOptions] = useState<{
+    fuelTypes: string[];
+    transmissions: string[];
+    regYears: string[];
+    colors: string[];
+  }>({
+    fuelTypes: [],
+    transmissions: [],
+    regYears: [],
+    colors: [],
+  });
+
+  // useRef to track if filters have changed
+  const prevFilterDeps = useRef<string>("");
+
+  // Effect to load initial data and set filter options
   useEffect(() => {
     async function loadData() {
       if (slug.length === 0) {
@@ -309,19 +325,19 @@ const FilterPageContent = () => {
         return;
       }
 
-      console.log("Input Slugs:", { brandName, modelName, city });
-
       try {
-        // Retrieve brands and models from localStorage
-        let brands: Brand[] = [];
-        let models: Model[] = [];
+        setLoading(true);
+
+        // Load brands and models from cache or API
+        let brandsData: Brand[] = [];
+        let modelsData: Model[] = [];
 
         const cachedBrands = localStorage.getItem("caryanams_brands");
         if (cachedBrands) {
           const { data, timestamp } = JSON.parse(cachedBrands);
           const isFresh = Date.now() - timestamp < 24 * 60 * 60 * 1000;
           if (isFresh) {
-            brands = Array.isArray(data) ? data.filter(isBrand) : [];
+            brandsData = Array.isArray(data) ? data.filter(isBrand) : [];
           }
         }
 
@@ -330,66 +346,48 @@ const FilterPageContent = () => {
           const { data, timestamp } = JSON.parse(cachedModels);
           const isFresh = Date.now() - timestamp < 24 * 60 * 60 * 1000;
           if (isFresh) {
-            models = Array.isArray(data) ? data.filter(isModel) : [];
+            modelsData = Array.isArray(data) ? data.filter(isModel) : [];
           }
         }
 
-        if (!brands.length || !models.length) {
+        if (!brandsData.length || !modelsData.length) {
           const [brandRes, modelRes] = await Promise.all([
-            brands.length
-              ? Promise.resolve(brands)
+            brandsData.length
+              ? Promise.resolve(brandsData)
               : fetchFromAPI<Brand>({
                   dbName: "caryanams",
                   collectionName: "brand",
                   limit: 0,
                 }),
-            models.length
-              ? Promise.resolve(models)
+            modelsData.length
+              ? Promise.resolve(modelsData)
               : fetchFromAPI<Model>({
                   dbName: "caryanams",
                   collectionName: "model",
                   limit: 0,
                 }),
           ]);
-          brands = Array.isArray(brandRes) ? brandRes.filter(isBrand) : [];
-          models = Array.isArray(modelRes) ? modelRes.filter(isModel) : [];
+          brandsData = Array.isArray(brandRes) ? brandRes.filter(isBrand) : [];
+          modelsData = Array.isArray(modelRes) ? modelRes.filter(isModel) : [];
 
-          if (!cachedBrands || !cachedBrands.includes("timestamp")) {
-            localStorage.setItem(
-              "caryanams_brands",
-              JSON.stringify({ data: brands, timestamp: Date.now() })
-            );
-          }
-          if (!cachedModels || !cachedModels.includes("timestamp")) {
-            localStorage.setItem(
-              "caryanams_models",
-              JSON.stringify({ data: models, timestamp: Date.now() })
-            );
-          }
+          localStorage.setItem(
+            "caryanams_brands",
+            JSON.stringify({ data: brandsData, timestamp: Date.now() })
+          );
+          localStorage.setItem(
+            "caryanams_models",
+            JSON.stringify({ data: modelsData, timestamp: Date.now() })
+          );
         }
 
-        // Fetch total car count
-        const countRes = await fetchFromAPI<UsedCar>({
-          dbName: "caryanams",
-          collectionName: "usedcar",
-          limit: 0,
-          projection: { _id: 1 },
-        });
-
-        const totalCars = Array.isArray(countRes) ? countRes.length : 0;
-        setTotalCount(totalCars);
-        console.log("Fetched Brands:", brands);
-        console.log("Fetched Models:", models);
-        console.log("Total Car Count:", totalCars);
-
+        // Set display names
         const selectedBrand = brandName
-          ? brands.find(
+          ? brandsData.find(
               (b) =>
                 b.sectionData.brand.brandname.toLowerCase().trim() ===
                 brandName.toLowerCase().trim()
             )
           : null;
-        const brandId = selectedBrand ? selectedBrand._id : "";
         setDisplayBrandName(
           selectedBrand
             ? selectedBrand.sectionData.brand.brandname
@@ -397,28 +395,32 @@ const FilterPageContent = () => {
         );
 
         const selectedModel = modelName
-          ? models.find(
+          ? modelsData.find(
               (m) =>
                 m.sectionData.model.name.toLowerCase().trim() ===
                   modelName.toLowerCase().trim() &&
-                (!brandId || m.sectionData.model.companyId === brandId)
+                (!selectedBrand ||
+                  m.sectionData.model.companyId === selectedBrand._id)
             )
           : null;
-        const modelId = selectedModel ? selectedModel._id : "";
         setDisplayModelName(
           selectedModel ? selectedModel.sectionData.model.name : modelName || ""
         );
 
-        // Construct dynamic lookups with $and condition
-        const matchConditions: MatchCondition[] = [];
-        if (brandId) {
-          matchConditions.push({ "sectionData.usedcar.company": brandId });
+        // Build match conditions based on all filters (URL and sidebar)
+        const currentMatchConditions: MatchCondition[] = [];
+        if (selectedBrand) {
+          currentMatchConditions.push({
+            "sectionData.usedcar.company": selectedBrand._id,
+          });
         }
-        if (modelId) {
-          matchConditions.push({ "sectionData.usedcar.model": modelId });
+        if (selectedModel) {
+          currentMatchConditions.push({
+            "sectionData.usedcar.model": selectedModel._id,
+          });
         }
         if (city) {
-          matchConditions.push({
+          currentMatchConditions.push({
             "sectionData.usedcar.registrationcity": {
               $regex: `^${city.trim()}$`,
               $options: "i",
@@ -426,12 +428,126 @@ const FilterPageContent = () => {
           });
         }
 
-        const matchStage: MatchStage["$match"] = matchConditions.length
-          ? { $and: matchConditions }
-          : {};
+        // Apply sidebar filters
+        if (selectedFuelTypes.length > 0) {
+          currentMatchConditions.push({
+            "sectionData.usedcar.fueltype": { $in: selectedFuelTypes },
+          });
+        }
+        if (selectedTransmissions.length > 0) {
+          currentMatchConditions.push({
+            "sectionData.usedcar.transmission": { $in: selectedTransmissions },
+          });
+        }
+        if (selectedRegYears.length > 0) {
+          currentMatchConditions.push({
+            "sectionData.usedcar.registrationyear": { $in: selectedRegYears },
+          });
+        }
+        if (selectedColors.length > 0) {
+          currentMatchConditions.push({
+            "sectionData.usedcar.color": { $in: selectedColors },
+          });
+        }
+        if (selectedPriceRanges.length > 0) {
+          const priceConditions: MatchCondition[] = [];
+          selectedPriceRanges.forEach((range) => {
+            if (range === "Below ₹5 Lakh") {
+              priceConditions.push({
+                $expr: {
+                  $lt: [{ $toInt: "$sectionData.usedcar.baseprice" }, 500000],
+                },
+              });
+            } else if (range === "₹5 - ₹10 Lakh") {
+              priceConditions.push({
+                $and: [
+                  {
+                    $expr: {
+                      $gte: [
+                        { $toInt: "$sectionData.usedcar.baseprice" },
+                        500000,
+                      ],
+                    },
+                  },
+                  {
+                    $expr: {
+                      $lte: [
+                        { $toInt: "$sectionData.usedcar.baseprice" },
+                        1000000,
+                      ],
+                    },
+                  },
+                ],
+              });
+            } else if (range === "₹10 - ₹15 Lakh") {
+              priceConditions.push({
+                $and: [
+                  {
+                    $expr: {
+                      $gte: [
+                        { $toInt: "$sectionData.usedcar.baseprice" },
+                        1000000,
+                      ],
+                    },
+                  },
+                  {
+                    $expr: {
+                      $lte: [
+                        { $toInt: "$sectionData.usedcar.baseprice" },
+                        1500000,
+                      ],
+                    },
+                  },
+                ],
+              });
+            } else if (range === "Above ₹15 Lakh") {
+              priceConditions.push({
+                $expr: {
+                  $gt: [{ $toInt: "$sectionData.usedcar.baseprice" }, 1500000],
+                },
+              });
+            }
+          });
+          if (priceConditions.length > 0) {
+            currentMatchConditions.push({ $or: priceConditions });
+          }
+        }
 
+        const matchStageFilter: MatchStage["$match"] =
+          currentMatchConditions.length ? { $and: currentMatchConditions } : {};
+
+        // Generate a string representation of current filters to check for changes
+        const currentFilterDeps = JSON.stringify({
+          brandName,
+          modelName,
+          city,
+          selectedFuelTypes,
+          selectedTransmissions,
+          selectedPriceRanges,
+          selectedRegYears,
+          selectedColors,
+        });
+
+        // Only fetch count if filters have changed
+        if (currentFilterDeps !== prevFilterDeps.current) {
+          setLoadingCount(true);
+          const countLookups: LookupStage[] = [{ $match: matchStageFilter }];
+          const countData = await fetchFromAPI<UsedCar>({
+            dbName: "caryanams",
+            collectionName: "usedcar",
+            lookups: countLookups,
+            projection: { _id: 1 },
+          });
+          const filteredCount = Array.isArray(countData) ? countData.length : 0;
+          setTotalFilteredCount(filteredCount);
+          setLoadingCount(false);
+          setCurrentPage(1); // Reset to first page when filters change
+          prevFilterDeps.current = currentFilterDeps;
+        }
+
+        // Fetch paginated cars
         const lookups: LookupStage[] = [
-          { $match: matchStage },
+          { $match: matchStageFilter },
           { $skip: (currentPage - 1) * carsPerPage },
           { $limit: carsPerPage },
         ];
@@ -458,65 +574,38 @@ const FilterPageContent = () => {
           lookups,
           projection,
         });
-        console.log("Raw Car Data:", data);
 
         const validCars = Array.isArray(data) ? data.filter(isUsedCar) : [];
-        console.log("Valid Cars:", validCars);
+        setCars(validCars);
 
-        const matchedCars = validCars.filter((car) => {
-          const { company, model, registrationcity } = car.sectionData.usedcar;
-          const brandMatch = brandName
-            ? brands
-                .find((b) => b._id === company)
-                ?.sectionData.brand.brandname.toLowerCase()
-                .trim() === brandName.toLowerCase().trim()
-            : true;
-          const modelMatch = modelName
-            ? models
-                .find((m) => m._id === model)
-                ?.sectionData.model.name.toLowerCase()
-                .trim() === modelName.toLowerCase().trim()
-            : true;
-          const cityMatch = city
-            ? registrationcity.toLowerCase().trim() ===
-              city.toLowerCase().trim()
-            : true;
-          return brandMatch && modelMatch && cityMatch;
+        // Update filter options based on fetched cars
+        const fuelTypes = Array.from(
+          new Set(
+            validCars.map((car) => car.sectionData.usedcar.fueltype.trim())
+          )
+        ).sort();
+        const transmissions = Array.from(
+          new Set(
+            validCars.map((car) => car.sectionData.usedcar.transmission.trim())
+          )
+        ).sort();
+        const regYears = Array.from(
+          new Set(
+            validCars.map((car) =>
+              car.sectionData.usedcar.registrationyear.trim()
+            )
+          )
+        ).sort((a, b) => parseInt(b) - parseInt(a));
+        const colors = Array.from(
+          new Set(validCars.map((car) => car.sectionData.usedcar.color.trim()))
+        ).sort();
+
+        setFilterOptions({
+          fuelTypes,
+          transmissions,
+          regYears,
+          colors,
         });
-        console.log("Matched Cars:", matchedCars);
-
-        if (validCars.length > matchedCars.length) {
-          console.warn(
-            `Filtered out ${
-              validCars.length - matchedCars.length
-            } cars that did not match the filters:`,
-            validCars.filter((car) => {
-              const { company, model, registrationcity } =
-                car.sectionData.usedcar;
-              const brandMatch = brandName
-                ? brands
-                    .find((b) => b._id === company)
-                    ?.sectionData.brand.brandname.toLowerCase()
-                    .trim() === brandName.toLowerCase().trim()
-                : true;
-              const modelMatch = modelName
-                ? models
-                    .find((m) => m._id === model)
-                    ?.sectionData.model.name.toLowerCase()
-                    .trim() === modelName.toLowerCase().trim()
-                : true;
-              const cityMatch = city
-                ? registrationcity.toLowerCase().trim() ===
-                  city.toLowerCase().trim()
-                : true;
-              return !(brandMatch && modelMatch && cityMatch);
-            })
-          );
-        }
-        console.log("brandId", brandId);
-        console.log("modelId", modelId);
-        setCars(matchedCars);
-        setFilteredCars(matchedCars);
       } catch (err) {
         console.error("Error fetching data:", err);
         setError("Failed to load cars. Please try again.");
@@ -526,52 +615,12 @@ const FilterPageContent = () => {
     }
 
     loadData();
-  }, [brandName, modelName, city, slug.length, currentPage]);
-
-  useEffect(() => {
-    const filtered = cars.filter((car) => {
-      const { usedcar } = car.sectionData;
-      const price = parseInt(usedcar.baseprice.replace(/[^\d]/g, ""));
-      return (
-        (!selectedFuelTypes.length ||
-          selectedFuelTypes.some(
-            (fuelType) =>
-              fuelType.toLowerCase().trim() ===
-              usedcar.fueltype.toLowerCase().trim()
-          )) &&
-        (!selectedTransmissions.length ||
-          selectedTransmissions.some(
-            (transmission) =>
-              transmission.toLowerCase().trim() ===
-              usedcar.transmission.toLowerCase().trim()
-          )) &&
-        (!selectedPriceRanges.length ||
-          selectedPriceRanges.some((range) => {
-            if (range === "Below ₹5 Lakh") return price < 500000;
-            if (range === "₹5 - ₹10 Lakh")
-              return price >= 500000 && price <= 1000000;
-            if (range === "₹10 - ₹15 Lakh")
-              return price > 1000000 && price <= 1500000;
-            if (range === "Above ₹15 Lakh") return price > 1500000;
-            return true;
-          })) &&
-        (!selectedRegYears.length ||
-          selectedRegYears.some(
-            (year) =>
-              year.toLowerCase().trim() ===
-              usedcar.registrationyear.toLowerCase().trim()
-          )) &&
-        (!selectedColors.length ||
-          selectedColors.some(
-            (color) =>
-              color.toLowerCase().trim() === usedcar.color.toLowerCase().trim()
-          ))
-      );
-    });
-    console.log("Sidebar Filtered Cars:", filtered);
-    setFilteredCars(filtered);
   }, [
-    cars,
+    brandName,
+    modelName,
+    city,
+    slug.length,
+    currentPage,
     selectedFuelTypes,
     selectedTransmissions,
     selectedPriceRanges,
@@ -579,30 +628,12 @@ const FilterPageContent = () => {
     selectedColors,
   ]);
 
-  const uniqueFuelTypes = Array.from(
-    new Set(cars.map((car) => car.sectionData.usedcar.fueltype.trim())).values()
-  ).sort();
-  const uniqueTransmissions = Array.from(
-    new Set(
-      cars.map((car) => car.sectionData.usedcar.transmission.trim())
-    ).values()
-  ).sort();
-  const uniqueRegYears = Array.from(
-    new Set(
-      cars.map((car) => car.sectionData.usedcar.registrationyear.trim())
-    ).values()
-  ).sort((a, b) => parseInt(b) - parseInt(a));
-  const uniqueColors = Array.from(
-    new Set(cars.map((car) => car.sectionData.usedcar.color.trim())).values()
-  ).sort();
-
   const handlePageChange = (page: number) => {
     setCurrentPage(page);
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
-  const totalPages = Math.ceil(totalCount / carsPerPage);
-  const paginatedCars = filteredCars;
+  const totalPages = Math.ceil(totalFilteredCount / carsPerPage);
 
   function generateCarSlug(car: UsedCar): string {
     const carData = car.sectionData.usedcar;
@@ -619,6 +650,25 @@ const FilterPageContent = () => {
 
     return parts.join("-");
   }
+
+  const clearAllFilters = () => {
+    setSelectedFuelTypes([]);
+    setSelectedTransmissions([]);
+    setSelectedPriceRanges([]);
+    setSelectedRegYears([]);
+    setSelectedColors([]);
+    setCurrentPage(1); // Reset page to 1 when clearing filters
+  };
+
+  const getTotalSelectedFilters = () => {
+    return (
+      selectedFuelTypes.length +
+      selectedTransmissions.length +
+      selectedPriceRanges.length +
+      selectedRegYears.length +
+      selectedColors.length
+    );
+  };
 
   if (error) {
     return (
@@ -640,18 +690,37 @@ const FilterPageContent = () => {
           {modelName ? ` ${displayModelName}` : ""}
           {city ? ` in ${city}` : ""}
         </p>
-        <p className="text-sm text-gray-500">
-          Found {filteredCars.length} cars
-        </p>
+        <div className="flex items-center gap-4 mt-2">
+          <p className="text-sm text-gray-500">
+            {loadingCount ? (
+              <span className="animate-pulse">Loading count...</span>
+            ) : (
+              `Found ${totalFilteredCount.toLocaleString()} cars`
+            )}
+          </p>
+          {getTotalSelectedFilters() > 0 && (
+            <button
+              onClick={clearAllFilters}
+              className="text-xs text-red-600 hover:text-red-800 underline"
+            >
+              Clear all filters ({getTotalSelectedFilters()})
+            </button>
+          )}
+        </div>
       </header>
 
       <div className="lg:hidden flex justify-end mb-4">
         <button
           onClick={() => setSidebarOpen(!sidebarOpen)}
-          className="px-4 py-2 bg-blue-600 text-white rounded-md font-semibold hover:bg-blue-700 transition"
+          className="px-4 py-2 bg-blue-600 text-white rounded-md font-semibold hover:bg-blue-700 transition relative"
           aria-label={sidebarOpen ? "Close filters" : "Show filters"}
         >
           {sidebarOpen ? "Close Filters" : "Show Filters"}
+          {getTotalSelectedFilters() > 0 && (
+            <span className="absolute -top-2 -right-2 bg-red-600 text-white text-xs rounded-full h-5 w-5 flex items-center justify-center">
+              {getTotalSelectedFilters()}
+            </span>
+          )}
         </button>
       </div>
 
@@ -659,13 +728,13 @@ const FilterPageContent = () => {
         <div
           className={`${
             sidebarOpen ? "block" : "hidden"
-          } lg:block w-full lg:w-1/4 space-y-4 bg-white lg:bg-transparent p-4 lg:p-0 rounded-lg lg:rounded-none shadow-lg lg:shadow-none absolute top-0 left-0 z-40 lg:static sticky`}
+          } lg:block w-full lg:w-1/4 space-y-4 bg-white lg:bg-transparent p-4 lg:p-0 rounded-lg lg:rounded-none shadow-lg lg:shadow-none sticky top-4 z-40 lg:static`}
         >
           <FilterSection
             title="Fuel Type"
             isOpen={fuelOpen}
             setIsOpen={setFuelOpen}
-            options={uniqueFuelTypes}
+            options={filterOptions.fuelTypes}
             selectedOptions={selectedFuelTypes}
             setSelectedOptions={setSelectedFuelTypes}
             ariaLabelPrefix="Filter by fuel type"
@@ -674,7 +743,7 @@ const FilterPageContent = () => {
             title="Transmission"
             isOpen={transmissionOpen}
             setIsOpen={setTransmissionOpen}
-            options={uniqueTransmissions}
+            options={filterOptions.transmissions}
             selectedOptions={selectedTransmissions}
             setSelectedOptions={setSelectedTransmissions}
             ariaLabelPrefix="Filter by transmission"
@@ -697,7 +766,7 @@ const FilterPageContent = () => {
             title="Registration Year"
             isOpen={regYearOpen}
             setIsOpen={setRegYearOpen}
-            options={uniqueRegYears}
+            options={filterOptions.regYears}
             selectedOptions={selectedRegYears}
             setSelectedOptions={setSelectedRegYears}
             ariaLabelPrefix="Filter by registration year"
@@ -706,7 +775,7 @@ const FilterPageContent = () => {
             title="Color"
             isOpen={colorOpen}
             setIsOpen={setColorOpen}
-            options={uniqueColors}
+            options={filterOptions.colors}
             selectedOptions={selectedColors}
             setSelectedOptions={setSelectedColors}
             ariaLabelPrefix="Filter by color"
@@ -720,19 +789,29 @@ const FilterPageContent = () => {
                 <CarCardSkeleton key={index} />
               ))}
             </div>
-          ) : filteredCars.length === 0 ? (
+          ) : cars.length === 0 ? (
             <div className="text-center text-gray-600 py-8">
-              No cars found for the selected filters.
+              <p className="text-lg mb-4">
+                No cars found for the selected filters.
+              </p>
+              {getTotalSelectedFilters() > 0 && (
+                <button
+                  onClick={clearAllFilters}
+                  className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition"
+                >
+                  Clear All Filters
+                </button>
+              )}
             </div>
           ) : (
             <>
               <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-6">
-                {paginatedCars.map((car) => {
+                {cars.map((car) => {
                   const slug = generateCarSlug(car);
                   return (
                     <div
                       key={car._id}
-                      className="bg-white rounded-xl shadow border overflow-hidden"
+                      className="bg-white rounded-xl shadow border overflow-hidden hover:shadow-lg transition-shadow"
                     >
                       <Image
                         src={
@@ -745,7 +824,7 @@ const FilterPageContent = () => {
                         className="object-cover w-full h-56"
                       />
                       <div className="p-4">
-                        <h3 className="text-sm font-semibold mb-1">
+                        <h3 className="text-sm font-semibold mb-1 line-clamp-2">
                           {car.sectionData.usedcar.carname}
                         </h3>
                         <div className="text-xs text-gray-600 flex items-center gap-2 mb-2">
@@ -773,14 +852,14 @@ const FilterPageContent = () => {
                             ).toLocaleString("en-IN")}
                           </span>
                           <button
-                            className="flex items-center gap-1 text-red-600 border border-red-500 px-3 py-1 text-xs rounded hover:bg-red-100"
+                            className="flex items-center gap-1 text-red-600 border border-red-500 px-3 py-1 text-xs rounded hover:bg-red-100 transition"
                             aria-label={`Make an offer for ${car.sectionData.usedcar.carname}`}
                           >
                             <MdLocalOffer /> MAKE OFFER
                           </button>
                         </div>
                         <Link href={`/used/${slug}/${car._id}`}>
-                          <button className="w-full bg-gradient-to-r from-[#004c97] to-[#d2ae42] text-white py-2 rounded-md flex justify-center items-center gap-2">
+                          <button className="w-full bg-gradient-to-r from-[#004c97] to-[#d2ae42] text-white py-2 rounded-md flex justify-center items-center gap-2 hover:opacity-90 transition">
                             <FaPhoneAlt /> Contact Seller
                           </button>
                         </Link>

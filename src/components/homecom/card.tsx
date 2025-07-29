@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import Image from "next/image";
-import OtpModal from "@/components/homecom/otpmodal"; // Ensure this path is correct
+import OtpModal from "@/components/homecom/otpmodal";
 import Link from "next/link";
 import {
   FaMapMarkerAlt,
@@ -12,12 +12,11 @@ import {
   FaPhoneAlt,
 } from "react-icons/fa";
 import { MdLocalOffer } from "react-icons/md";
-import { fetchFromAPI } from "@/lib/api"; // Ensure this path is correct
+import { fetchFromAPI } from "@/lib/api";
 
 interface Car {
   id: string;
   image: string;
-  images?: string[];
   fuel: string;
   kms: string;
   transmission: string;
@@ -25,7 +24,7 @@ interface Car {
   location: string;
   owner: string;
   price: string;
-  company: string; // This seems to be used for the URL slug here, might want to rename for clarity
+  company: string; // Used for URL slug
 }
 
 interface RawCarItem {
@@ -40,7 +39,7 @@ interface RawCarItem {
       ownership?: string;
       baseprice?: string | number;
       images?: string[];
-      company?: string; // This is an ID linking to brand
+      company?: string; // Brand ID
       urlslug?: string;
     };
   };
@@ -55,9 +54,39 @@ interface RawBrandData {
   };
 }
 
-const carCache: { [key: string]: { data: RawCarItem[]; timestamp: number } } = {};
-const brandCache: { [key: string]: { data: RawBrandData[]; timestamp: number } } = {};
+interface CacheData<T> {
+  data: T;
+  timestamp: number;
+}
+
+const carCache: { [key: string]: { data: RawCarItem[]; timestamp: number } } =
+  {};
+const brandCache: {
+  [key: string]: { data: RawBrandData[]; timestamp: number };
+} = {};
 const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
+const LOCAL_STORAGE_CACHE_KEY = "brandsData"; // Match Header's cache key
+const LOCAL_STORAGE_CACHE_DURATION = 24 * 60 * 60 * 1000; // 24 hours, matching Header
+
+const getLocalStorageCache = <T,>(key: string): CacheData<T> | null => {
+  const cached = localStorage.getItem(key);
+  if (!cached) return null;
+  try {
+    const parsed = JSON.parse(cached);
+    if (
+      parsed.data &&
+      parsed.timestamp &&
+      Date.now() - parsed.timestamp < LOCAL_STORAGE_CACHE_DURATION
+    ) {
+      return parsed;
+    }
+    localStorage.removeItem(key);
+    return null;
+  } catch {
+    localStorage.removeItem(key);
+    return null;
+  }
+};
 
 const cachedFetchCars = async (params: {
   dbName: string;
@@ -70,7 +99,7 @@ const cachedFetchCars = async (params: {
   if (cached && Date.now() - cached.timestamp < CACHE_DURATION) {
     return cached.data;
   }
-  const data = await fetchFromAPI(params) as RawCarItem[];
+  const data = (await fetchFromAPI(params)) as RawCarItem[];
   carCache[cacheKey] = { data, timestamp: Date.now() };
   return data;
 };
@@ -81,73 +110,154 @@ const cachedFetchBrands = async (params: {
   filters: { [key: string]: unknown };
 }): Promise<RawBrandData[]> => {
   const cacheKey = JSON.stringify(params);
+
+  // Check localStorage first (Header's cache)
+  const localStorageCache = getLocalStorageCache<RawBrandData[]>(
+    LOCAL_STORAGE_CACHE_KEY
+  );
+  if (localStorageCache) {
+    const filteredData = localStorageCache.data.filter(
+      (brand) => brand._id === params.filters._id
+    );
+    if (filteredData.length > 0) {
+      console.log(
+        "Using localStorage brands cache:",
+        filteredData.map((b) => ({
+          _id: b._id,
+          brandname: b.sectionData?.brand?.brandname,
+        }))
+      );
+      return filteredData;
+    }
+  }
+
+  // Check in-memory cache
   const cached = brandCache[cacheKey];
   if (cached && Date.now() - cached.timestamp < CACHE_DURATION) {
+    console.log(
+      "Using in-memory brands cache:",
+      cached.data.map((b) => ({
+        _id: b._id,
+        brandname: b.sectionData?.brand?.brandname,
+      }))
+    );
     return cached.data;
   }
-  const data = await fetchFromAPI(params) as RawBrandData[];
+
+  // Fetch from API if no valid cache
+  const data = (await fetchFromAPI(params)) as RawBrandData[];
   brandCache[cacheKey] = { data, timestamp: Date.now() };
+  console.log(
+    "Fetched brands from API:",
+    data.map((b) => ({
+      _id: b._id,
+      brandname: b.sectionData?.brand?.brandname,
+    }))
+  );
   return data;
 };
 
 export default function Card() {
   const [cars, setCars] = useState<Car[]>([]);
   const [loading, setLoading] = useState(true);
-
-  // State for the "MAKE OFFER" modal
   const [isOfferModalOpen, setIsOfferModalOpen] = useState(false);
   const [selectedCar, setSelectedCar] = useState<Car | null>(null);
-
-  // State for the OTP modal
   const [isOtpModalOpen, setIsOtpModalOpen] = useState(false);
-
   useEffect(() => {
     const fetchCars = async () => {
       try {
         setLoading(true);
+        let validCars: Car[] = [];
+        const limit = 6; // Desired number of cars
+
+        // Fetch cars
         const rawData = await cachedFetchCars({
           dbName: "caryanams",
           collectionName: "usedcar",
-          limit: 6,
+          limit: limit * 2, // Fetch more to filter out invalid ones
           filters: {
             "sectionData.usedcar.status": "Active",
           },
         });
 
+        if (rawData.length === 0) {
+          setCars([]);
+          setLoading(false);
+          return;
+        }
+
         const carsWithBrand = await Promise.all(
           rawData.map(async (item: RawCarItem) => {
             const carData = item.sectionData?.usedcar || {};
-            let brandName = "Unknown";
 
+            // Check if all required fields are non-empty
+            if (
+              !carData.carname ||
+              carData.carname === "" ||
+              !carData.fueltype ||
+              carData.fueltype === "" ||
+              !carData.kilometerdriven ||
+              carData.kilometerdriven <= 0 ||
+              !carData.transmission ||
+              carData.transmission === "" ||
+              !carData.registrationcity ||
+              carData.registrationcity === "" ||
+              !carData.ownership ||
+              carData.ownership === "" ||
+              !carData.baseprice ||
+              carData.baseprice === "" ||
+              !carData.images ||
+              carData.images.length === 0 ||
+              carData.images[0] === ""
+            ) {
+              return null; // Skip cars with empty or invalid fields
+            }
+
+            let brandName = "";
             if (carData.company) {
               const brandData = await cachedFetchBrands({
                 dbName: "caryanams",
                 collectionName: "brand",
                 filters: { _id: carData.company },
               });
-              brandName = brandData[0]?.sectionData?.brand?.brandname || "Unknown";
+              brandName = brandData[0]?.sectionData?.brand?.brandname || "";
+              if (!brandName || brandName === "") return null; // Skip if brand name is empty
+            } else {
+              return null; // Skip if no company/brand ID
             }
 
-            const carNameSlug = carData.carname?.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "") || "untitled-car";
-            const brandNameSlug = brandName.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "") || "unknown-brand";
-            const generatedUrlSlug = carData.urlslug || `${brandNameSlug}-${carNameSlug}`;
+            const carNameSlug = carData.carname
+              .toLowerCase()
+              .replace(/\s+/g, "-")
+              .replace(/[^a-z0-9-]/g, "");
+            const brandNameSlug = brandName
+              .toLowerCase()
+              .replace(/\s+/g, "-")
+              .replace(/[^a-z0-9-]/g, "");
+            const generatedUrlSlug =
+              carData.urlslug || `${brandNameSlug}-${carNameSlug}`;
 
             return {
               id: item._id,
-              image: carData.images?.[0] || "/c1.png",
-              fuel: carData.fueltype || "N/A",
-              kms: `${carData.kilometerdriven || 0} km`,
-              transmission: carData.transmission || "N/A",
-              name: carData.carname || "Unknown Car",
-              location: carData.registrationcity || "N/A",
-              owner: carData.ownership || "N/A",
-              price: `₹ ${Number(carData.baseprice || 0).toLocaleString("en-IN")}`,
-              company: generatedUrlSlug, // This is used for the URL slug
+              image: carData.images[0],
+              fuel: carData.fueltype,
+              kms: `${carData.kilometerdriven} km`,
+              transmission: carData.transmission,
+              name: carData.carname,
+              location: carData.registrationcity,
+              owner: carData.ownership,
+              price: `₹ ${Number(carData.baseprice).toLocaleString("en-IN")}`,
+              company: generatedUrlSlug,
             };
           })
         );
 
-        setCars(carsWithBrand);
+        // Filter out null entries (invalid cars) and add valid ones
+        validCars = carsWithBrand
+          .filter((car): car is Car => car !== null)
+          .slice(0, limit);
+
+        setCars(validCars);
       } catch (error) {
         console.error("Error fetching cars:", error);
       } finally {
@@ -158,37 +268,40 @@ export default function Card() {
     fetchCars();
   }, []);
 
-  // Function to open the "MAKE OFFER" modal
   const openOfferModal = (car: Car) => {
     setSelectedCar(car);
     setIsOfferModalOpen(true);
   };
 
-  // Function to close the "MAKE OFFER" modal
   const closeOfferModal = () => {
     setIsOfferModalOpen(false);
     setSelectedCar(null);
   };
 
-  // Function to handle the "SUBMIT OFFER" button click inside the "MAKE OFFER" modal
   const handleMakeOfferSubmit = () => {
-    // Here you would typically process the offer (e.g., send it to an API)
     console.log("Offer submitted for:", selectedCar?.name);
-    // After submitting the offer, you open the OTP modal
-    setIsOfferModalOpen(false); // Close the offer modal first
-    setIsOtpModalOpen(true); // Open the OTP modal
+    setIsOfferModalOpen(false);
+    setIsOtpModalOpen(true);
   };
 
-  // Function to close the OTP modal
   const handleCloseOtpModal = () => {
     setIsOtpModalOpen(false);
-    // You might also want to reset OTP-related states if they were managed here
   };
 
   return (
     <section className="py-10 px-4 max-w-7xl mx-auto">
       <div className="flex justify-between items-center mb-6">
-        <h2 className="text-2xl font-bold text-gray-800">Available Used Cars</h2>
+        <div className="">
+          <h2 className="text-2xl font-bold">
+            <span className="text-[#004c97]">Latest</span>{" "}
+            <span className="text-[#d2ae42]">Featured </span>
+            <span className="text-[#004c97]">Cars</span>{" "}
+          </h2>
+          <div className="mt-1">
+            <div className="w-32 h-[1px] bg-black mb-[4px]"></div>
+            <div className="w-24 h-[1px] bg-black"></div>
+          </div>
+        </div>
         <Link
           href="/buy-used-car"
           className="bg-gradient-to-r from-[#d2ae42] to-[#004c97] text-white text-sm font-semibold px-5 py-2 rounded-md shadow hover:opacity-90 transition inline-block"
@@ -224,7 +337,10 @@ export default function Card() {
                 key={car.id}
                 className="group bg-white rounded-xl shadow border border-gray-100 overflow-hidden hover:shadow-lg transition"
               >
-                <Link href={`/used/${car.company}/${car.id}`} aria-label={`View details for ${car.name}`}>
+                <Link
+                  href={`/used/${car.company}/${car.id}`}
+                  aria-label={`View details for ${car.name}`}
+                >
                   <div className="relative w-full h-48 overflow-hidden rounded-t-xl">
                     <Image
                       src={car.image}
@@ -261,9 +377,11 @@ export default function Card() {
                   <hr className="h-px my-4 bg-gray-200 border-0" />
 
                   <div className="flex items-center gap-3 mb-2">
-                    <div className="text-blue-900 font-bold text-lg">{car.price}</div>
+                    <div className="text-blue-900 font-bold text-lg">
+                      {car.price}
+                    </div>
                     <button
-                      onClick={() => openOfferModal(car)} // Open the initial offer modal
+                      onClick={() => openOfferModal(car)}
                       className="flex items-center gap-1 text-red-600 border border-red-500 px-3 py-1 text-xs rounded hover:bg-red-100 transition"
                     >
                       <MdLocalOffer className="text-sm" />
@@ -282,24 +400,20 @@ export default function Card() {
             ))}
       </div>
 
-      {/* "MAKE OFFER" Modal - controlled by isOfferModalOpen */}
       {isOfferModalOpen && selectedCar && (
         <div className="fixed inset-0 bg-black bg-opacity-40 z-50 flex items-center justify-center px-4">
           <div className="bg-white rounded-lg w-full max-w-md shadow-lg relative">
-            {/* Close Button */}
             <button
-              onClick={closeOfferModal} // Closes the offer modal
+              onClick={closeOfferModal}
               className="absolute top-2 right-2 text-gray-500 hover:text-black text-xl font-bold"
             >
               ×
             </button>
 
-            {/* Modal Content */}
             <div className="p-6">
               <h2 className="text-lg font-semibold mb-2">Make Offer</h2>
               <p className="text-gray-700 mb-4">{selectedCar.name}</p>
 
-              {/* Info Box */}
               <div className="bg-gray-100 p-4 rounded-lg mb-4 text-sm space-y-2">
                 <div className="flex justify-between">
                   <span className="text-gray-600">Highest offer</span>
@@ -311,33 +425,40 @@ export default function Card() {
                 </div>
                 <div className="flex justify-between font-medium">
                   <span className="text-gray-600">Car Price</span>
-                  <span className="text-green-700 font-bold">{selectedCar.price}</span>
+                  <span className="text-green-700 font-bold">
+                    {selectedCar.price}
+                  </span>
                 </div>
               </div>
 
-              {/* Offer Dropdown */}
               <div className="mb-4">
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   HOW MUCH DO YOU WANT TO OFFER?
                 </label>
-                <select
-                  className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                >
+                <select className="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-1 focus:ring-blue-500">
                   <option>Select your offer</option>
                   <option>{selectedCar.price}</option>
-                  {/* Ensure calculations are robust, consider parsing price accurately */}
-                  <option>₹ {(Number(selectedCar.price.replace(/[^0-9]/g, "")) - 50000).toLocaleString("en-IN")}</option>
-                  <option>₹ {(Number(selectedCar.price.replace(/[^0-9]/g, "")) - 100000).toLocaleString("en-IN")}</option>
+                  <option>
+                    ₹{" "}
+                    {(
+                      Number(selectedCar.price.replace(/[^0-9]/g, "")) - 50000
+                    ).toLocaleString("en-IN")}
+                  </option>
+                  <option>
+                    ₹{" "}
+                    {(
+                      Number(selectedCar.price.replace(/[^0-9]/g, "")) - 100000
+                    ).toLocaleString("en-IN")}
+                  </option>
                 </select>
                 <p className="text-xs text-gray-500 mt-1">
                   Please make an offer to the dealer you find suitable
                 </p>
               </div>
 
-              {/* Submit Button for the MAKE OFFER modal */}
               <div className="p-4">
                 <button
-                  onClick={handleMakeOfferSubmit} // This will close this modal and open the OTP modal
+                  onClick={handleMakeOfferSubmit}
                   className="w-full bg-gradient-to-r from-[#d2ae42] to-[#004c97] text-white font-bold py-3 rounded-lg hover:from-[#e0be52] hover:to-[#005ca7] transition duration-300"
                 >
                   SUBMIT OFFER
@@ -348,11 +469,7 @@ export default function Card() {
         </div>
       )}
 
-      {/* OTP Modal - controlled by isOtpModalOpen */}
-      <OtpModal
-        isOpen={isOtpModalOpen}
-        onClose={handleCloseOtpModal} // Function to close the OTP modal
-      />
+      <OtpModal isOpen={isOtpModalOpen} onClose={handleCloseOtpModal} />
     </section>
   );
 }

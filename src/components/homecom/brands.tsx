@@ -2,49 +2,98 @@
 
 import { useEffect, useState } from 'react';
 import Image from 'next/image';
+import Link from 'next/link';
 import { fetchFromAPI } from '@/lib/api';
 
-interface BrandImageItem {
-  image: string;
-}
-
-interface TopBrandsResponse {
+interface Brand {
+  _id: string;
   sectionData: {
-    'Top Brand Image Table': {
-      imageDetails: BrandImageItem[];
+    brand: {
+      brandname: string;
+      brandimage: string;
+      trending?: boolean;
     };
   };
 }
 
+interface CacheData<T> {
+  data: T;
+  timestamp: number;
+}
+
+const LOCAL_STORAGE_CACHE_KEY = 'brandsData'; // Match Header's cache key
+const CACHE_DURATION = 24 * 60 * 60 * 1000; // 24 hours, matching Header
+
+const getLocalStorageCache = <T,>(key: string): CacheData<T> | null => {
+  const cached = localStorage.getItem(key);
+  if (!cached) return null;
+  try {
+    const parsed = JSON.parse(cached);
+    if (
+      parsed.data &&
+      parsed.timestamp &&
+      Date.now() - parsed.timestamp < CACHE_DURATION
+    ) {
+      return parsed;
+    }
+    localStorage.removeItem(key);
+    return null;
+  } catch {
+    localStorage.removeItem(key);
+    return null;
+  }
+};
+
 export default function Brands() {
-  const [brandImages, setBrandImages] = useState<string[]>([]);
+  const [brands, setBrands] = useState<Brand[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const fetchImages = async () => {
       try {
         setLoading(true);
-        const result: TopBrandsResponse[] = await fetchFromAPI<TopBrandsResponse>({
-          dbName: 'caryanams',
-          collectionName: 'topbrandsimages',
-          limit: 0,
-        });
 
-        console.log('Fetched top brands data:', result);
-
-        const imageDetails: BrandImageItem[] | undefined =
-          result?.[0]?.sectionData?.['Top Brand Image Table']?.imageDetails;
-
-        if (imageDetails && Array.isArray(imageDetails)) {
-          const images = imageDetails.map((item) => item.image);
-          setBrandImages(images);
+        // Check localStorage for cached brand data
+        const cachedBrands = getLocalStorageCache<Brand[]>(LOCAL_STORAGE_CACHE_KEY);
+        if (cachedBrands) {
+          const trendingBrands = cachedBrands.data.filter(
+            (item) => item.sectionData.brand.trending === true
+          );
+          console.log(
+            'Using localStorage brands cache (filtered trending):',
+            trendingBrands.map((b) => ({
+              _id: b._id,
+              brandname: b.sectionData.brand.brandname,
+              trending: b.sectionData.brand.trending,
+            }))
+          );
+          setBrands(trendingBrands);
         } else {
-          console.warn('No valid imageDetails found in response:', imageDetails);
-          setBrandImages([]);
+          // Fallback to API if no cache
+          const result: Brand[] = await fetchFromAPI<Brand>({
+            dbName: 'caryanams',
+            collectionName: 'brand',
+            filters: { 'sectionData.brand.trending': true },
+            limit: 0,
+          });
+
+          console.log('Fetched brands data from API:', result);
+
+          if (result && Array.isArray(result)) {
+            // Filter client-side for trending brands (redundant but ensures consistency)
+            const trendingBrands = result.filter(
+              (item) => item.sectionData.brand.trending === true
+            );
+            console.log('Filtered trending brands:', trendingBrands);
+            setBrands(trendingBrands);
+          } else {
+            console.warn('No valid brand data found in response:', result);
+            setBrands([]);
+          }
         }
       } catch (error) {
         console.error('Failed to fetch brand images:', error);
-        setBrandImages([]);
+        setBrands([]);
       } finally {
         setLoading(false);
       }
@@ -54,14 +103,13 @@ export default function Brands() {
   }, []);
 
   return (
-    <section className="py-10 px-13">
+    <section className="py-10 px-3">
       {/* Header aligned to full left */}
-      <div className="mb-6 pl-12">
+      <div className="py-10 px-4 max-w-7xl mx-auto">
         <h2 className="text-2xl font-bold">
-        <span className="text-[#004c97]">Top</span>{' '}
-        <span className="text-[#d2ae42]">Brands</span>
-      </h2>
-
+          <span className="text-[#004c97]">Top</span>{' '}
+          <span className="text-[#d2ae42]">Brands</span>
+        </h2>
         <div className="mt-1">
           <div className="w-20 h-[1px] bg-black mb-[4px]"></div>
           <div className="w-12 h-[1px] bg-black"></div>
@@ -71,34 +119,37 @@ export default function Brands() {
       {/* Content centered */}
       <div className="max-w-6xl mx-auto">
         <div className="flex flex-wrap justify-center gap-4 mb-4">
-          {loading
-            ? Array.from({ length: 8 }).map((_, index) => (
-                <div
-                  key={index}
-                  className="w-[15%] min-w-[100px] aspect-square bg-gray-200 rounded-sm animate-pulse"
-                ></div>
-              ))
-            : brandImages.length > 0
-            ? brandImages.map((image, index) => (
-                <div
-                  key={index}
-                  className="w-[15%] min-w-[100px] aspect-square bg-white border border-gray-200 rounded-sm flex items-center justify-center hover:shadow-md hover:opacity-100 transition opacity-80"
-                >
-                  <div className="w-2/3 h-2/3 relative">
-                    <Image
-                      src={image}
-                      alt={`Brand ${index + 1}`}
-                      fill
-                      className="object-contain"
-                      suppressHydrationWarning={true}
-                      aria-label={`Brand logo ${index + 1}`}
-                    />
-                  </div>
+          {loading ? (
+            Array.from({ length: 8 }).map((_, index) => (
+              <div
+                key={index}
+                className="w-[15%] min-w-[100px] aspect-square bg-gray-200 rounded-sm animate-pulse"
+              ></div>
+            ))
+          ) : brands.length > 0 ? (
+            brands.map((brand) => (
+              <Link
+                key={brand._id}
+                href={`/buy-used/${encodeURIComponent(
+                  brand.sectionData.brand.brandname.toLowerCase()
+                )}`}
+                className="w-[15%] min-w-[100px] aspect-square bg-white border border-gray-200 rounded-sm flex items-center justify-center hover:shadow-md hover:opacity-100 transition opacity-80"
+              >
+                <div className="w-2/3 h-2/3 relative">
+                  <Image
+                    src={brand.sectionData.brand.brandimage}
+                    alt={brand.sectionData.brand.brandname}
+                    fill
+                    className="object-contain"
+                    suppressHydrationWarning={true}
+                    aria-label={`Brand logo ${brand.sectionData.brand.brandname}`}
+                  />
                 </div>
-              ))
-            : (
-              <p className="text-gray-600">No brand images available.</p>
-            )}
+              </Link>
+            ))
+          ) : (
+            <p className="text-gray-600">No trending brand images available.</p>
+          )}
         </div>
       </div>
     </section>

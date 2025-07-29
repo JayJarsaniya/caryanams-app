@@ -4,22 +4,48 @@ import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import { fetchFromAPI } from "@/lib/api";
 
-// Define the structure of the API response based on actual data
+interface Brand {
+  _id: string;
+  sectionData: {
+    brand: {
+      brandname: string;
+      brandimage: string;
+      trending?: boolean;
+    };
+  };
+}
+
 interface ImageItem {
   image: string;
 }
 
-interface TopBrandImageTable {
-  imageDetails: ImageItem[];
+interface CacheData<T> {
+  data: T;
+  timestamp: number;
 }
 
-interface SectionData {
-  "Top Brand Image Table": TopBrandImageTable;
-}
+const LOCAL_STORAGE_CACHE_KEY = "brandsData"; // Match Header's cache key
+const CACHE_DURATION = 24 * 60 * 60 * 1000; // 24 hours, matching Header
 
-interface ApiResponse {
-  sectionData?: SectionData;
-}
+const getLocalStorageCache = <T,>(key: string): CacheData<T> | null => {
+  const cached = localStorage.getItem(key);
+  if (!cached) return null;
+  try {
+    const parsed = JSON.parse(cached);
+    if (
+      parsed.data &&
+      parsed.timestamp &&
+      Date.now() - parsed.timestamp < CACHE_DURATION
+    ) {
+      return parsed;
+    }
+    localStorage.removeItem(key);
+    return null;
+  } catch {
+    localStorage.removeItem(key);
+    return null;
+  }
+};
 
 export default function PremiumClients() {
   const [brandImages, setBrandImages] = useState<ImageItem[]>([]);
@@ -30,18 +56,52 @@ export default function PremiumClients() {
     const getImages = async () => {
       try {
         setLoading(true);
-        const res = await fetchFromAPI<ApiResponse>({
-          dbName: "caryanams",
-          collectionName: "topbrandsimages",
-          limit: 0,
-        });
 
-        console.log("API Response:", JSON.stringify(res, null, 2));
+        // Check localStorage for cached brand data
+        const cachedBrands = getLocalStorageCache<Brand[]>(
+          LOCAL_STORAGE_CACHE_KEY
+        );
+        if (cachedBrands) {
+          const trendingBrands = cachedBrands.data.filter(
+            (item) => item.sectionData.brand.trending === true
+          );
+          const images = trendingBrands
+            .filter((brand) => brand.sectionData.brand.brandimage)
+            .map((brand) => ({ image: brand.sectionData.brand.brandimage }));
+          console.log(
+            "Using localStorage brands cache (filtered trending):",
+            images.map((item) => item.image)
+          );
+          setBrandImages(images);
+        } else {
+          // Fallback to API if no cache
+          const result: Brand[] = await fetchFromAPI<Brand>({
+            dbName: "caryanams",
+            collectionName: "brand",
+            filters: { "sectionData.brand.trending": true },
+            limit: 0,
+          });
 
-        const images =
-          res[0]?.sectionData?.["Top Brand Image Table"]?.imageDetails || [];
+          console.log(
+            "Fetched brands data from API (filtered trending):",
+            result.map((brand) => ({
+              _id: brand._id,
+              brandname: brand.sectionData.brand.brandname,
+              brandimage: brand.sectionData.brand.brandimage,
+              trending: brand.sectionData.brand.trending,
+            }))
+          );
 
-        setBrandImages(images);           
+          if (result && Array.isArray(result)) {
+            const images = result
+              .filter((brand) => brand.sectionData.brand.brandimage)
+              .map((brand) => ({ image: brand.sectionData.brand.brandimage }));
+            setBrandImages(images);
+          } else {
+            console.warn("No valid brand data found in response:", result);
+            setBrandImages([]);
+          }
+        }
       } catch (err) {
         console.error("Failed to fetch brand images:", err);
         setBrandImages([]);

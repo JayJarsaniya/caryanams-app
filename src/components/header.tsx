@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from "react";
 import Image from "next/image";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { fetchFromAPI } from "@/lib/api";
 
 interface SubMenuItem {
@@ -223,6 +224,7 @@ const Header: React.FC = () => {
   const [newBrands, setNewBrands] = useState<NewBrand[]>([]);
   const [showLogin, setShowLogin] = useState<string | null>(null);
   const [showRegistration, setShowRegistration] = useState(false);
+  const pathname = usePathname();
 
   useEffect(() => {
     const loadBrands = async () => {
@@ -233,11 +235,10 @@ const Header: React.FC = () => {
           const isFresh = Date.now() - timestamp < 24 * 60 * 60 * 1000;
           if (isFresh) {
             setBrands(data);
-            return; // ✅ Stop here if cache is fresh
+            return;
           }
         }
 
-        // Only fetch if no cache or cache expired
         const freshData = await fetchFromAPI<Brand>({
           dbName: "caryanams",
           collectionName: "brand",
@@ -295,14 +296,33 @@ const Header: React.FC = () => {
     setOpenDropdown((prev) => (prev === label ? null : label));
   };
 
-  const closeMobileMenu = () => {
-    setMobileMenuOpen(false);
+  const closeDropdown = () => {
     setOpenDropdown(null);
   };
 
-  // Utility function to generate brand slug
+  const closeDropdownAndMobileMenu = () => {
+    setOpenDropdown(null);
+    setMobileMenuOpen(false);
+  };
+
   const generateBrandSlug = (brandname: string): string => {
     return encodeURIComponent(brandname.toLowerCase().replace(/\s+/g, "-"));
+  };
+
+  const isNavItemActive = (item: NavItem): boolean => {
+    if (item.href) {
+      return pathname === item.href;
+    }
+    if (item.label === "USED CAR") {
+      return pathname.startsWith("/buy-used") || pathname.startsWith("/used");
+    }
+    if (item.label === "NEW CAR") {
+      return pathname.startsWith("/newcar") || pathname.startsWith("/new");
+    }
+    if (item.submenu) {
+      return item.submenu.some((sub) => pathname === sub.href);
+    }
+    return false;
   };
 
   return (
@@ -310,7 +330,7 @@ const Header: React.FC = () => {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-0">
         <div className="flex items-center justify-between h-16">
           <div className="flex-shrink-0">
-            <Link href="/" onClick={closeMobileMenu}>
+            <Link href="/" onClick={closeDropdownAndMobileMenu}>
               <Image
                 src="/logo.png"
                 alt="Caryanams"
@@ -323,10 +343,17 @@ const Header: React.FC = () => {
 
           <nav className="hidden md:flex space-x-6">
             {navItems.map((item) => {
+              const isActive = isNavItemActive(item);
               if (item.label === "NEW CAR") {
                 return (
                   <div key="NEW CAR" className="relative group font-semibold">
-                    <div className="inline-flex items-center text-gray-700 hover:text-blue-600 transition focus:outline-none cursor-pointer">
+                    <div
+                      className={`inline-flex items-center transition focus:outline-none cursor-pointer ${
+                        isActive
+                          ? "text-blue-600"
+                          : "text-gray-700 hover:text-blue-600"
+                      }`}
+                    >
                       NEW CAR
                       <svg
                         className="ml-1 h-4 w-4 fill-current"
@@ -346,6 +373,7 @@ const Header: React.FC = () => {
                               href={`/newcar/${generateBrandSlug(
                                 brand.sectionData.newBrand.brandname
                               )}`}
+                              onClick={closeDropdown}
                               className="flex items-center space-x-2 text-gray-700 hover:text-blue-600 text-sm"
                             >
                               <span>
@@ -361,6 +389,7 @@ const Header: React.FC = () => {
                       <div className="mt-3 text-start">
                         <Link
                           href="/new/models"
+                          onClick={closeDropdown}
                           className="text-blue-600 text-sm hover:underline font-medium"
                         >
                           VIEW ALL
@@ -374,7 +403,13 @@ const Header: React.FC = () => {
               if (item.label === "USED CAR") {
                 return (
                   <div key="USED CAR" className="relative group font-semibold">
-                    <div className="inline-flex items-center text-gray-700 hover:text-blue-600 transition focus:outline-none cursor-pointer">
+                    <div
+                      className={`inline-flex items-center transition focus:outline-none cursor-pointer ${
+                        isActive
+                          ? "text-blue-600"
+                          : "text-gray-700 hover:text-blue-600"
+                      }`}
+                    >
                       USED CAR
                       <svg
                         className="ml-1 h-4 w-4 fill-current"
@@ -396,6 +431,7 @@ const Header: React.FC = () => {
                               href={`/buy-used/${encodeURIComponent(
                                 brand.sectionData.brand.brandname.toLowerCase()
                               )}`}
+                              onClick={closeDropdown}
                               className="flex items-center space-x-2 text-gray-700 hover:text-blue-600 text-sm mb-1"
                             >
                               {brand.sectionData.brand.brandimage && (
@@ -412,6 +448,7 @@ const Header: React.FC = () => {
                           ))}
                         <Link
                           href="/buy-used-car"
+                          onClick={closeDropdown}
                           className="text-blue-600 text-sm hover:underline font-medium mt-2 block"
                         >
                           VIEW ALL
@@ -436,6 +473,7 @@ const Header: React.FC = () => {
                           <Link
                             key={city}
                             href={`/used/buy?city=${city.toLowerCase()}`}
+                            onClick={closeDropdown}
                             className="block text-sm text-gray-700 hover:text-blue-600 mb-1"
                           >
                             {city}
@@ -456,6 +494,7 @@ const Header: React.FC = () => {
                           <Link
                             key={fuel}
                             href={`/used/buy?fuel=${fuel.toLowerCase()}`}
+                            onClick={closeDropdown}
                             className="block bg-gray-100 px-2 py-1 rounded text-xs font-semibold text-gray-800 hover:text-blue-600"
                           >
                             {fuel}
@@ -476,6 +515,7 @@ const Header: React.FC = () => {
                             href={`/used/buy?transmission=${trans
                               .toLowerCase()
                               .replace(/\s+/g, "-")}`}
+                            onClick={closeDropdown}
                             className="block bg-gray-100 px-2 py-1 rounded text-xs font-semibold text-gray-800 hover:text-blue-600"
                           >
                             {trans}
@@ -489,7 +529,13 @@ const Header: React.FC = () => {
 
               return item.submenu ? (
                 <div key={item.label} className="relative group font-semibold">
-                  <div className="inline-flex items-center text-gray-700 hover:text-blue-600 transition focus:outline-none cursor-pointer">
+                  <div
+                    className={`inline-flex items-center transition focus:outline-none cursor-pointer ${
+                      isActive
+                        ? "text-blue-600"
+                        : "text-gray-700 hover:text-blue-600"
+                    }`}
+                  >
                     {item.label}
                     <svg
                       className="ml-1 h-4 w-4 fill-current"
@@ -503,6 +549,7 @@ const Header: React.FC = () => {
                       <Link
                         key={sub.label}
                         href={sub.href}
+                        onClick={closeDropdown}
                         className="block px-4 py-2 text-gray-700 hover:bg-gray-100"
                       >
                         {sub.label}
@@ -514,7 +561,11 @@ const Header: React.FC = () => {
                 <Link
                   key={item.label}
                   href={item.href!}
-                  className="text-gray-700 hover:text-blue-600 transition font-semibold"
+                  className={`transition font-semibold ${
+                    isActive
+                      ? "text-blue-600"
+                      : "text-gray-700 hover:text-blue-600"
+                  }`}
                 >
                   {item.label}
                 </Link>
@@ -570,7 +621,7 @@ const Header: React.FC = () => {
         }`}
       >
         <div className="flex justify-between items-center p-4 border-b border-gray-200">
-          <Link href="/" onClick={closeMobileMenu}>
+          <Link href="/" onClick={closeDropdownAndMobileMenu}>
             <Image
               src="/logo.png"
               alt="Caryanams"
@@ -580,7 +631,7 @@ const Header: React.FC = () => {
             />
           </Link>
           <button
-            onClick={closeMobileMenu}
+            onClick={closeDropdownAndMobileMenu}
             className="text-gray-700 hover:text-gray-900 focus:outline-none"
             aria-label="Close menu"
           >
@@ -601,6 +652,7 @@ const Header: React.FC = () => {
         </div>
         <nav className="flex flex-col p-4 space-y-4">
           {navItems.map((item) => {
+            const isActive = isNavItemActive(item);
             const isDropdownOpen = openDropdown === item.label;
 
             if (item.label === "NEW CAR") {
@@ -608,7 +660,9 @@ const Header: React.FC = () => {
                 <div key="NEW CAR" className="flex flex-col">
                   <button
                     onClick={() => toggleDropdown("NEW CAR")}
-                    className="flex items-center justify-between text-gray-700 font-semibold py-2"
+                    className={`flex items-center justify-between font-semibold py-2 ${
+                      isActive ? "text-blue-600" : "text-gray-700"
+                    }`}
                   >
                     NEW CAR
                     <svg
@@ -631,7 +685,7 @@ const Header: React.FC = () => {
                           href={`/newcar/${generateBrandSlug(
                             brand.sectionData.newBrand.brandname
                           )}`}
-                          onClick={closeMobileMenu}
+                          onClick={closeDropdownAndMobileMenu}
                           className="flex items-center space-x-2 text-gray-700 hover:text-blue-600 text-sm py-1"
                         >
                           <span>{brand.sectionData.newBrand.brandname}</span>
@@ -642,7 +696,7 @@ const Header: React.FC = () => {
                       ))}
                       <Link
                         href="/new/models"
-                        onClick={closeMobileMenu}
+                        onClick={closeDropdownAndMobileMenu}
                         className="text-blue-600 text-sm hover:underline font-medium block py-1"
                       >
                         VIEW ALL
@@ -658,7 +712,9 @@ const Header: React.FC = () => {
                 <div key="USED CAR" className="flex flex-col">
                   <button
                     onClick={() => toggleDropdown("USED CAR")}
-                    className="flex items-center justify-between text-gray-700 font-semibold py-2"
+                    className={`flex items-center justify-between font-semibold py-2 ${
+                      isActive ? "text-blue-600" : "text-gray-700"
+                    }`}
                   >
                     USED CAR
                     <svg
@@ -684,7 +740,7 @@ const Header: React.FC = () => {
                               href={`/buy-used/${encodeURIComponent(
                                 brand.sectionData.brand.brandname.toLowerCase()
                               )}`}
-                              onClick={closeMobileMenu}
+                              onClick={closeDropdownAndMobileMenu}
                               className="flex items-center space-x-2 text-gray-700 hover:text-blue-600 text-sm py-1"
                             >
                               {brand.sectionData.brand.brandimage && (
@@ -701,7 +757,7 @@ const Header: React.FC = () => {
                           ))}
                         <Link
                           href="/buy-used-car"
-                          onClick={closeMobileMenu}
+                          onClick={closeDropdownAndMobileMenu}
                           className="text-blue-600 text-sm hover:underline font-medium block py-1"
                         >
                           VIEW ALL
@@ -726,7 +782,7 @@ const Header: React.FC = () => {
                           <Link
                             key={city}
                             href={`/used/buy?city=${city.toLowerCase()}`}
-                            onClick={closeMobileMenu}
+                            onClick={closeDropdownAndMobileMenu}
                             className="block text-sm text-gray-700 hover:text-blue-600 py-1"
                           >
                             {city}
@@ -747,7 +803,7 @@ const Header: React.FC = () => {
                           <Link
                             key={fuel}
                             href={`/used/buy?fuel=${fuel.toLowerCase()}`}
-                            onClick={closeMobileMenu}
+                            onClick={closeDropdownAndMobileMenu}
                             className="block bg-gray-100 px-2 py-1 rounded text-xs font-semibold text-gray-800 hover:text-blue-600 my-1"
                           >
                             {fuel}
@@ -768,7 +824,7 @@ const Header: React.FC = () => {
                             href={`/used/buy?transmission=${trans
                               .toLowerCase()
                               .replace(/\s+/g, "-")}`}
-                            onClick={closeMobileMenu}
+                            onClick={closeDropdownAndMobileMenu}
                             className="block bg-gray-100 px-2 py-1 rounded text-xs font-semibold text-gray-800 hover:text-blue-600 my-1"
                           >
                             {trans}
@@ -785,7 +841,9 @@ const Header: React.FC = () => {
               <div key={item.label} className="flex flex-col">
                 <button
                   onClick={() => toggleDropdown(item.label)}
-                  className="flex items-center justify-between text-gray-700 font-semibold py-2"
+                  className={`flex items-center justify-between font-semibold py-2 ${
+                    isActive ? "text-blue-600" : "text-gray-700"
+                  }`}
                 >
                   {item.label}
                   <svg
@@ -803,7 +861,7 @@ const Header: React.FC = () => {
                       <Link
                         key={sub.label}
                         href={sub.href}
-                        onClick={closeMobileMenu}
+                        onClick={closeDropdownAndMobileMenu}
                         className="block text-gray-700 hover:text-blue-600 text-sm py-1"
                       >
                         {sub.label}
@@ -816,8 +874,12 @@ const Header: React.FC = () => {
               <Link
                 key={item.label}
                 href={item.href!}
-                onClick={closeMobileMenu}
-                className="text-gray-700 hover:text-blue-600 font-semibold py-2"
+                onClick={closeDropdownAndMobileMenu}
+                className={`font-semibold py-2 ${
+                  isActive
+                    ? "text-blue-600"
+                    : "text-gray-700 hover:text-blue-600"
+                }`}
               >
                 {item.label}
               </Link>
@@ -825,7 +887,7 @@ const Header: React.FC = () => {
           })}
           <Link
             href="/login"
-            onClick={closeMobileMenu}
+            onClick={closeDropdownAndMobileMenu}
             className="inline-block px-4 py-2 bg-gradient-to-r from-blue-600 to-green-500 text-white font-semibold rounded hover:from-blue-700 hover:to-green-600 transition text-center"
             aria-label="Sell on Caryanams"
           >
