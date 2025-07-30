@@ -120,13 +120,6 @@ const cachedFetchBrands = async (params: {
       (brand) => brand._id === params.filters._id
     );
     if (filteredData.length > 0) {
-      console.log(
-        "Using localStorage brands cache:",
-        filteredData.map((b) => ({
-          _id: b._id,
-          brandname: b.sectionData?.brand?.brandname,
-        }))
-      );
       return filteredData;
     }
   }
@@ -134,26 +127,13 @@ const cachedFetchBrands = async (params: {
   // Check in-memory cache
   const cached = brandCache[cacheKey];
   if (cached && Date.now() - cached.timestamp < CACHE_DURATION) {
-    console.log(
-      "Using in-memory brands cache:",
-      cached.data.map((b) => ({
-        _id: b._id,
-        brandname: b.sectionData?.brand?.brandname,
-      }))
-    );
     return cached.data;
   }
 
   // Fetch from API if no valid cache
   const data = (await fetchFromAPI(params)) as RawBrandData[];
   brandCache[cacheKey] = { data, timestamp: Date.now() };
-  console.log(
-    "Fetched brands from API:",
-    data.map((b) => ({
-      _id: b._id,
-      brandname: b.sectionData?.brand?.brandname,
-    }))
-  );
+
   return data;
 };
 
@@ -279,7 +259,6 @@ export default function Card() {
   };
 
   const handleMakeOfferSubmit = () => {
-    console.log("Offer submitted for:", selectedCar?.name);
     setIsOfferModalOpen(false);
     setIsOtpModalOpen(true);
   };

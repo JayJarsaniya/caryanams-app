@@ -23,7 +23,7 @@ import { MdLocalOffer } from "react-icons/md";
 import { PieChart, Pie, Cell, Legend, ResponsiveContainer } from "recharts";
 import { fetchFromAPI } from "@/lib/api";
 
-// Interfaces
+// Interfaces (unchanged)
 interface CarDetails {
   id: string;
   name: string;
@@ -192,7 +192,7 @@ const cachedFetchFromAPI = async <T extends CachedDataItem>(params: {
   dbName: string;
   collectionName: string;
   limit?: number;
-  filters?: Record<string, unknown>;
+  query?: Record<string, unknown>;
 }): Promise<T[]> => {
   const cacheKey = JSON.stringify(params);
   const cached = cache[cacheKey];
@@ -207,7 +207,7 @@ const cachedFetchFromAPI = async <T extends CachedDataItem>(params: {
   return data;
 };
 
-// Skeleton Loader Component
+// Skeleton Loader Component (unchanged)
 const CarDetailsSkeleton = () => (
   <div className="min-h-screen bg-[#f6f6f6]">
     <div className="bg-white shadow-sm">
@@ -358,12 +358,12 @@ const CarDetailsContent = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Loan Calculator state
+  // Loan Calculator state (unchanged)
   const [loanAmount, setLoanAmount] = useState(100000);
   const [interestRate, setInterestRate] = useState(6.5);
   const [tenure, setTenure] = useState(1);
 
-  // Loan calculations
+  // Loan calculations (unchanged)
   const monthlyRate = interestRate / 12 / 100;
   const numPayments = tenure * 12;
   const emi =
@@ -393,14 +393,12 @@ const CarDetailsContent = () => {
         setLoading(true);
         let rawCarData: RawCarData[] | null = null;
 
-        // 1. Attempt to fetch by _id if the last part of the slug looks like an ID
-        const isPotentialId = /^[0-9a-fA-F]{24}$/.test(lastSlugPart);
-
-        if (isPotentialId) {
+        if (lastSlugPart) {
           rawCarData = await cachedFetchFromAPI<RawCarData>({
             dbName: "caryanams",
             collectionName: "usedcar",
-            filters: { _id: lastSlugPart },
+            query: { _id: lastSlugPart },
+            limit: 1,
           });
         }
 
@@ -409,7 +407,7 @@ const CarDetailsContent = () => {
           rawCarData = await cachedFetchFromAPI<RawCarData>({
             dbName: "caryanams",
             collectionName: "usedcar",
-            filters: { "sectionData.usedcar.urlslug": fullSlug },
+            query: { "sectionData.usedcar.urlslug": fullSlug },
           });
         }
 
@@ -430,7 +428,7 @@ const CarDetailsContent = () => {
           rawCarData = await cachedFetchFromAPI<RawCarData>({
             dbName: "caryanams",
             collectionName: "usedcar",
-            filters: {
+            query: {
               "sectionData.usedcar.carname": {
                 $regex: `${carNamePart.replace(/-/g, " ")}`,
                 $options: "i",
@@ -471,33 +469,79 @@ const CarDetailsContent = () => {
           return;
         }
 
-        // Fetch brand name
-        const brandData = await cachedFetchFromAPI<RawBrandData>({
-          dbName: "caryanams",
-          collectionName: "brand",
-          filters: { _id: carData.company },
-        });
+        // Fetch brand name from localStorage
+        let brandName = "Unknown";
+        try {
+          const brandsDataString = localStorage.getItem("brandsData");
+          if (brandsDataString) {
+            const brandsData = JSON.parse(brandsDataString);
+            const brand = brandsData.data.find(
+              (b: RawBrandData) => b._id === carData.company
+            );
+            brandName = brand?.sectionData?.brand?.brandname || "Unknown";
+          } else {
+            // Fallback to API if localStorage is empty
+            const brandData = await cachedFetchFromAPI<RawBrandData>({
+              dbName: "caryanams",
+              collectionName: "brand",
+              query: { _id: carData.company },
+            });
+            brandName =
+              brandData.find((b) => b._id === carData.company)?.sectionData
+                ?.brand?.brandname || "Unknown";
+          }
+        } catch (error) {
+          console.error("Error accessing brandsData from localStorage:", error);
+          // Fallback to API
+          const brandData = await cachedFetchFromAPI<RawBrandData>({
+            dbName: "caryanams",
+            collectionName: "brand",
+            query: { _id: carData.company },
+          });
+          brandName =
+            brandData.find((b) => b._id === carData.company)?.sectionData?.brand
+              ?.brandname || "Unknown";
+        }
 
-        const brandName =
-          brandData.find((b) => b._id === carData.company)?.sectionData?.brand
-            ?.brandname || "Unknown";
+        // Fetch model name from localStorage
+        let modelName = "Unknown";
+        try {
+          const modelsDataString = localStorage.getItem("modelsData");
+          if (modelsDataString) {
+            const modelsData = JSON.parse(modelsDataString);
+            const model = modelsData.data.find(
+              (m: RawModelData) => m._id === carData.model
+            );
+            modelName = model?.sectionData?.model?.name || "Unknown";
+          } else {
+            // Fallback to API if localStorage is empty
+            const modelData = await cachedFetchFromAPI<RawModelData>({
+              dbName: "caryanams",
+              collectionName: "model",
+              query: { _id: carData.model },
+            });
+            modelName =
+              modelData.find((m) => m._id === carData.model)?.sectionData?.model
+                ?.name || "Unknown";
+          }
+        } catch (error) {
+          console.error("Error accessing modelsData from localStorage:", error);
+          // Fallback to API
+          const modelData = await cachedFetchFromAPI<RawModelData>({
+            dbName: "caryanams",
+            collectionName: "model",
+            query: { _id: carData.model },
+          });
+          modelName =
+            modelData.find((m) => m._id === carData.model)?.sectionData?.model
+              ?.name || "Unknown";
+        }
 
-        // Fetch model name
-        const modelData = await cachedFetchFromAPI<RawModelData>({
-          dbName: "caryanams",
-          collectionName: "model",
-          filters: { _id: carData.model },
-        });
-
-        const modelName =
-          modelData.find((m) => m._id === carData.model)?.sectionData?.model
-            ?.name || "Unknown";
-
-        // Fetch variant name
+        // Fetch variant name (unchanged, as no variant data provided in localStorage)
         const variantData = await cachedFetchFromAPI<RawVariantData>({
           dbName: "caryanams",
           collectionName: "variant",
-          filters: { _id: carData.variant },
+          query: { _id: carData.variant },
         });
 
         const variantName =
@@ -563,12 +607,12 @@ const CarDetailsContent = () => {
 
         setCar(formattedCar);
 
-        // Fetch related cars
+        // Fetch related cars (unchanged)
         const relatedRawData = await cachedFetchFromAPI<RawCarData>({
           dbName: "caryanams",
           collectionName: "usedcar",
           limit: 3,
-          filters: {
+          query: {
             "sectionData.usedcar.company": carData.company,
             _id: { $ne: item._id },
           },
@@ -636,6 +680,7 @@ const CarDetailsContent = () => {
     );
   }
 
+  // Rest of the component remains unchanged
   return (
     <div className="min-h-screen bg-[#f6f6f6]">
       {/* Header */}

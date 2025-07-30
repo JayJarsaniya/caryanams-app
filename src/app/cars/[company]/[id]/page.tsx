@@ -185,7 +185,7 @@ export default function CarDetailsPage() {
         let rawData: RawCarData[] = await fetchFromAPI<RawCarData>({
           dbName: "caryanams",
           collectionName: "usedcar",
-          filters: { _id: params.id },
+          query: { _id: params.id },
         });
 
         console.log("API Response for _id filter:", params.id, rawData);
@@ -304,7 +304,7 @@ export default function CarDetailsPage() {
           dbName: "caryanams",
           collectionName: "usedcar",
           limit: 3,
-          filters: {
+          query: {
             "sectionData.usedcar.company": carData.company,
             _id: { $ne: params.id },
           },

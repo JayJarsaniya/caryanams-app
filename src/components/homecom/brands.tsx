@@ -59,32 +59,23 @@ export default function Brands() {
           const trendingBrands = cachedBrands.data.filter(
             (item) => item.sectionData.brand.trending === true
           );
-          console.log(
-            'Using localStorage brands cache (filtered trending):',
-            trendingBrands.map((b) => ({
-              _id: b._id,
-              brandname: b.sectionData.brand.brandname,
-              trending: b.sectionData.brand.trending,
-            }))
-          );
+       
           setBrands(trendingBrands);
         } else {
           // Fallback to API if no cache
           const result: Brand[] = await fetchFromAPI<Brand>({
             dbName: 'caryanams',
             collectionName: 'brand',
-            filters: { 'sectionData.brand.trending': true },
+            query: { 'sectionData.brand.trending': true },
             limit: 0,
           });
 
-          console.log('Fetched brands data from API:', result);
 
           if (result && Array.isArray(result)) {
             // Filter client-side for trending brands (redundant but ensures consistency)
             const trendingBrands = result.filter(
               (item) => item.sectionData.brand.trending === true
             );
-            console.log('Filtered trending brands:', trendingBrands);
             setBrands(trendingBrands);
           } else {
             console.warn('No valid brand data found in response:', result);

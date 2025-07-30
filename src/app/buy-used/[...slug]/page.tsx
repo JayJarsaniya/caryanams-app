@@ -455,7 +455,7 @@ const FilterPageContent = () => {
             if (range === "Below ₹5 Lakh") {
               priceConditions.push({
                 $expr: {
-                  $lt: [{ $toInt: "$sectionData.usedcar.baseprice" }, 500000],
+                  $lt: [{ $toDouble: "$sectionData.usedcar.baseprice" }, 500000],
                 },
               });
             } else if (range === "₹5 - ₹10 Lakh") {
@@ -464,7 +464,7 @@ const FilterPageContent = () => {
                   {
                     $expr: {
                       $gte: [
-                        { $toInt: "$sectionData.usedcar.baseprice" },
+                        { $toDouble: "$sectionData.usedcar.baseprice" },
                         500000,
                       ],
                     },
@@ -472,7 +472,7 @@ const FilterPageContent = () => {
                   {
                     $expr: {
                       $lte: [
-                        { $toInt: "$sectionData.usedcar.baseprice" },
+                        { $toDouble: "$sectionData.usedcar.baseprice" },
                         1000000,
                       ],
                     },
@@ -485,7 +485,7 @@ const FilterPageContent = () => {
                   {
                     $expr: {
                       $gte: [
-                        { $toInt: "$sectionData.usedcar.baseprice" },
+                        { $toDouble: "$sectionData.usedcar.baseprice" },
                         1000000,
                       ],
                     },
@@ -493,7 +493,7 @@ const FilterPageContent = () => {
                   {
                     $expr: {
                       $lte: [
-                        { $toInt: "$sectionData.usedcar.baseprice" },
+                        { $toDouble: "$sectionData.usedcar.baseprice" },
                         1500000,
                       ],
                     },
@@ -503,7 +503,7 @@ const FilterPageContent = () => {
             } else if (range === "Above ₹15 Lakh") {
               priceConditions.push({
                 $expr: {
-                  $gt: [{ $toInt: "$sectionData.usedcar.baseprice" }, 1500000],
+                  $gt: [{ $toDouble: "$sectionData.usedcar.baseprice" }, 1500000],
                 },
               });
             }

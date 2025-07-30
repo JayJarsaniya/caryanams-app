@@ -9,7 +9,7 @@ const API_KEY = process.env.NEXT_PUBLIC_API_KEY!;
 interface FetchParams {
   dbName: string;
   collectionName: string;
-  filters?: Record<string, unknown>;
+  query?: Record<string, unknown>;
   projection?: Record<string, number>;
   limit?: number;
   skip?: number;
@@ -21,7 +21,7 @@ interface FetchParams {
 export async function fetchFromAPI<T>({
   dbName,
   collectionName,
-  filters = {},
+  query = {},
   projection = {},
   limit = 0,
   skip = 0,
@@ -39,7 +39,7 @@ export async function fetchFromAPI<T>({
       body: JSON.stringify({
         dbName,
         collectionName,
-        filters,
+        query,
         projection,
         limit,
         skip,

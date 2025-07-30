@@ -224,6 +224,7 @@ const Header: React.FC = () => {
   const [newBrands, setNewBrands] = useState<NewBrand[]>([]);
   const [showLogin, setShowLogin] = useState<string | null>(null);
   const [showRegistration, setShowRegistration] = useState(false);
+
   const pathname = usePathname();
 
   useEffect(() => {
@@ -292,35 +293,31 @@ const Header: React.FC = () => {
     setOpenDropdown(null);
   };
 
-  const toggleDropdown = (label: string) => {
-    setOpenDropdown((prev) => (prev === label ? null : label));
-  };
-
-  const closeDropdown = () => {
+  const closeAllDropdowns = () => {
     setOpenDropdown(null);
   };
 
-  const closeDropdownAndMobileMenu = () => {
-    setOpenDropdown(null);
+  const closeMobileMenu = () => {
     setMobileMenuOpen(false);
+    setOpenDropdown(null);
   };
 
   const generateBrandSlug = (brandname: string): string => {
     return encodeURIComponent(brandname.toLowerCase().replace(/\s+/g, "-"));
   };
 
-  const isNavItemActive = (item: NavItem): boolean => {
-    if (item.href) {
-      return pathname === item.href;
+  const isActive = (href: string, currentPath: string): boolean => {
+    if (href === currentPath) {
+      return true;
     }
-    if (item.label === "USED CAR") {
-      return pathname.startsWith("/buy-used") || pathname.startsWith("/used");
+    if (href.startsWith("/newcar/") && currentPath.startsWith("/newcar/")) {
+      return true;
     }
-    if (item.label === "NEW CAR") {
-      return pathname.startsWith("/newcar") || pathname.startsWith("/new");
+    if (href.startsWith("/buy-used/") && currentPath.startsWith("/buy-used/")) {
+      return true;
     }
-    if (item.submenu) {
-      return item.submenu.some((sub) => pathname === sub.href);
+    if (href.startsWith("/used/buy") && currentPath.startsWith("/used/buy")) {
+      return true;
     }
     return false;
   };
@@ -330,7 +327,7 @@ const Header: React.FC = () => {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-0">
         <div className="flex items-center justify-between h-16">
           <div className="flex-shrink-0">
-            <Link href="/" onClick={closeDropdownAndMobileMenu}>
+            <Link href="/" onClick={closeMobileMenu}>
               <Image
                 src="/logo.png"
                 alt="Caryanams"
@@ -343,15 +340,37 @@ const Header: React.FC = () => {
 
           <nav className="hidden md:flex space-x-6">
             {navItems.map((item) => {
-              const isActive = isNavItemActive(item);
+              const isDesktopDropdownOpen = openDropdown === item.label;
+
+              let itemIsActive = false;
+              if (item.href) {
+                itemIsActive = isActive(item.href, pathname);
+              } else if (item.label === "NEW CAR") {
+                itemIsActive = pathname.startsWith("/newcar/");
+              } else if (item.label === "USED CAR") {
+                itemIsActive =
+                  pathname.startsWith("/buy-used/") ||
+                  pathname.startsWith("/used/buy");
+              } else if (item.submenu) {
+                itemIsActive = item.submenu.some((sub) =>
+                  isActive(sub.href, pathname)
+                );
+              }
+
+              const baseClasses =" hover:text-blue-600 transition font-semibold";
+              const activeClasses = "text-blue-600 ";
+
               if (item.label === "NEW CAR") {
                 return (
-                  <div key="NEW CAR" className="relative group font-semibold">
+                  <div
+                    key="NEW CAR"
+                    className="relative group font-semibold"
+                    onMouseEnter={() => setOpenDropdown("NEW CAR")}
+                    onMouseLeave={() => setOpenDropdown(null)}
+                  >
                     <div
-                      className={`inline-flex items-center transition focus:outline-none cursor-pointer ${
-                        isActive
-                          ? "text-blue-600"
-                          : "text-gray-700 hover:text-blue-600"
+                      className={`inline-flex items-center cursor-pointer py-1 ${
+                        itemIsActive ? activeClasses : baseClasses
                       }`}
                     >
                       NEW CAR
@@ -362,7 +381,13 @@ const Header: React.FC = () => {
                         <path d="M5.25 7.5L10 12.25L14.75 7.5H5.25Z" />
                       </svg>
                     </div>
-                    <div className="absolute left-0 mt-2 w-64 bg-white border border-gray-200 rounded shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50 p-4">
+                    <div
+                      className={`absolute left-0 mt-2 w-64 bg-white border border-gray-200 rounded shadow-lg transition-all duration-200 z-50 p-4 ${
+                        isDesktopDropdownOpen
+                          ? "opacity-100 visible"
+                          : "opacity-0 invisible"
+                      }`}
+                    >
                       <h4 className="text-sm font-bold text-gray-700 mb-2">
                         Popular Brands
                       </h4>
@@ -373,8 +398,16 @@ const Header: React.FC = () => {
                               href={`/newcar/${generateBrandSlug(
                                 brand.sectionData.newBrand.brandname
                               )}`}
-                              onClick={closeDropdown}
-                              className="flex items-center space-x-2 text-gray-700 hover:text-blue-600 text-sm"
+                              onClick={closeAllDropdowns}
+                              className={`flex items-center space-x-2 text-sm ${
+                                isActive(
+                                  `/newcar/${generateBrandSlug(
+                                    brand.sectionData.newBrand.brandname
+                                  )}`,
+                                  pathname
+                                )
+                                 
+                              }`}
                             >
                               <span>
                                 {brand.sectionData.newBrand.brandname}
@@ -389,8 +422,12 @@ const Header: React.FC = () => {
                       <div className="mt-3 text-start">
                         <Link
                           href="/new/models"
-                          onClick={closeDropdown}
-                          className="text-blue-600 text-sm hover:underline font-medium"
+                          onClick={closeAllDropdowns}
+                          className={`text-sm font-medium ${
+                            isActive("/new/models", pathname)
+                              ? "text-blue-600 font-semibold"
+                              : "text-gray-700 hover:text-blue-600 hover:underline"
+                          }`}
                         >
                           VIEW ALL
                         </Link>
@@ -402,12 +439,15 @@ const Header: React.FC = () => {
 
               if (item.label === "USED CAR") {
                 return (
-                  <div key="USED CAR" className="relative group font-semibold">
+                  <div
+                    key="USED CAR"
+                    className="relative group font-semibold"
+                    onMouseEnter={() => setOpenDropdown("USED CAR")}
+                    onMouseLeave={() => setOpenDropdown(null)}
+                  >
                     <div
-                      className={`inline-flex items-center transition focus:outline-none cursor-pointer ${
-                        isActive
-                          ? "text-blue-600"
-                          : "text-gray-700 hover:text-blue-600"
+                      className={`inline-flex items-center cursor-pointer py-1 ${
+                        itemIsActive ? activeClasses : baseClasses
                       }`}
                     >
                       USED CAR
@@ -418,7 +458,13 @@ const Header: React.FC = () => {
                         <path d="M5.25 7.5L10 12.25L14.75 7.5H5.25Z" />
                       </svg>
                     </div>
-                    <div className="absolute left-0 mt-2 w-[700px] grid grid-cols-3 gap-4 bg-white border border-gray-200 rounded shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50 p-6">
+                    <div
+                      className={`absolute left-0 mt-2 w-[700px] grid grid-cols-3 gap-4 bg-white border border-gray-200 rounded shadow-lg transition-all duration-200 z-50 p-6 ${
+                        isDesktopDropdownOpen
+                          ? "opacity-100 visible"
+                          : "opacity-0 invisible"
+                      }`}
+                    >
                       <div className="space-y-4 text-start">
                         <h4 className="text-sm font-bold text-gray-700 mb-2">
                           Popular Brands
@@ -431,8 +477,16 @@ const Header: React.FC = () => {
                               href={`/buy-used/${encodeURIComponent(
                                 brand.sectionData.brand.brandname.toLowerCase()
                               )}`}
-                              onClick={closeDropdown}
-                              className="flex items-center space-x-2 text-gray-700 hover:text-blue-600 text-sm mb-1"
+                              onClick={closeAllDropdowns}
+                              className={`flex items-center space-x-2 text-sm mb-1 ${
+                                isActive(
+                                  `/buy-used/${encodeURIComponent(
+                                    brand.sectionData.brand.brandname.toLowerCase()
+                                  )}`,
+                                  pathname
+                                )
+                                 
+                              }`}
                             >
                               {brand.sectionData.brand.brandimage && (
                                 <Image
@@ -448,8 +502,12 @@ const Header: React.FC = () => {
                           ))}
                         <Link
                           href="/buy-used-car"
-                          onClick={closeDropdown}
-                          className="text-blue-600 text-sm hover:underline font-medium mt-2 block"
+                          onClick={closeAllDropdowns}
+                          className={`text-sm font-medium mt-2 block ${
+                            isActive("/buy-used-car", pathname)
+                              ? "text-blue-600 font-semibold"
+                              : "text-gray-700 hover:text-blue-600 hover:underline"
+                          }`}
                         >
                           VIEW ALL
                         </Link>
@@ -473,8 +531,15 @@ const Header: React.FC = () => {
                           <Link
                             key={city}
                             href={`/used/buy?city=${city.toLowerCase()}`}
-                            onClick={closeDropdown}
-                            className="block text-sm text-gray-700 hover:text-blue-600 mb-1"
+                            onClick={closeAllDropdowns}
+                            className={`block text-sm mb-1 ${
+                              isActive(
+                                `/used/buy?city=${city.toLowerCase()}`,
+                                pathname
+                              )
+                                ? "text-blue-600 font-semibold"
+                                : "text-gray-700 hover:text-blue-600"
+                            }`}
                           >
                             {city}
                           </Link>
@@ -494,8 +559,15 @@ const Header: React.FC = () => {
                           <Link
                             key={fuel}
                             href={`/used/buy?fuel=${fuel.toLowerCase()}`}
-                            onClick={closeDropdown}
-                            className="block bg-gray-100 px-2 py-1 rounded text-xs font-semibold text-gray-800 hover:text-blue-600"
+                            onClick={closeAllDropdowns}
+                            className={`block bg-gray-100 px-2 py-1 rounded text-xs font-semibold ${
+                              isActive(
+                                `/used/buy?fuel=${fuel.toLowerCase()}`,
+                                pathname
+                              )
+                                ? "text-blue-600 bg-blue-100"
+                                : "text-gray-800 hover:text-blue-600 hover:bg-blue-50"
+                            }`}
                           >
                             {fuel}
                           </Link>
@@ -515,8 +587,17 @@ const Header: React.FC = () => {
                             href={`/used/buy?transmission=${trans
                               .toLowerCase()
                               .replace(/\s+/g, "-")}`}
-                            onClick={closeDropdown}
-                            className="block bg-gray-100 px-2 py-1 rounded text-xs font-semibold text-gray-800 hover:text-blue-600"
+                            onClick={closeAllDropdowns}
+                            className={`block bg-gray-100 px-2 py-1 rounded text-xs font-semibold ${
+                              isActive(
+                                `/used/buy?transmission=${trans
+                                  .toLowerCase()
+                                  .replace(/\s+/g, "-")}`,
+                                pathname
+                              )
+                                ? "text-blue-600 bg-blue-100"
+                                : "text-gray-800 hover:text-blue-600 hover:bg-blue-50"
+                            }`}
                           >
                             {trans}
                           </Link>
@@ -528,12 +609,15 @@ const Header: React.FC = () => {
               }
 
               return item.submenu ? (
-                <div key={item.label} className="relative group font-semibold">
+                <div
+                  key={item.label}
+                  className="relative group font-semibold"
+                  onMouseEnter={() => setOpenDropdown(item.label)}
+                  onMouseLeave={() => setOpenDropdown(null)}
+                >
                   <div
-                    className={`inline-flex items-center transition focus:outline-none cursor-pointer ${
-                      isActive
-                        ? "text-blue-600"
-                        : "text-gray-700 hover:text-blue-600"
+                    className={`inline-flex items-center cursor-pointer py-1 ${
+                      itemIsActive ? activeClasses : baseClasses
                     }`}
                   >
                     {item.label}
@@ -544,13 +628,23 @@ const Header: React.FC = () => {
                       <path d="M5.25 7.5L10 12.25L14.75 7.5H5.25Z" />
                     </svg>
                   </div>
-                  <div className="absolute left-0 mt-2 w-48 bg-white border border-gray-200 rounded shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50">
+                  <div
+                    className={`absolute left-0 mt-2 w-48 bg-white border border-gray-200 rounded shadow-lg transition-all duration-200 z-50 ${
+                      isDesktopDropdownOpen
+                        ? "opacity-100 visible"
+                        : "opacity-0 invisible"
+                    }`}
+                  >
                     {item.submenu.map((sub) => (
                       <Link
                         key={sub.label}
                         href={sub.href}
-                        onClick={closeDropdown}
-                        className="block px-4 py-2 text-gray-700 hover:bg-gray-100"
+                        onClick={closeAllDropdowns}
+                        className={`block px-4 py-2 text-sm ${
+                          isActive(sub.href, pathname)
+                            ? "text-blue-600 font-semibold bg-blue-50"
+                            : "text-gray-700 hover:bg-gray-100 hover:text-blue-600"
+                        }`}
                       >
                         {sub.label}
                       </Link>
@@ -561,10 +655,8 @@ const Header: React.FC = () => {
                 <Link
                   key={item.label}
                   href={item.href!}
-                  className={`transition font-semibold ${
-                    isActive
-                      ? "text-blue-600"
-                      : "text-gray-700 hover:text-blue-600"
+                  className={`py-1 ${baseClasses} ${
+                    itemIsActive ? activeClasses : ""
                   }`}
                 >
                   {item.label}
@@ -576,7 +668,9 @@ const Header: React.FC = () => {
           <div className="hidden md:block">
             <Link
               href="/login"
-              className="inline-block px-4 py-2 bg-gradient-to-r from-[#004C97] to-[#D2AE42] text-white font-semibold rounded hover:from-[#004C97] hover:to-[#D2AE42] hover:opacity-90 transition"
+              className={`inline-block px-4 py-2 bg-gradient-to-r from-[#004C97] to-[#D2AE42] text-white font-semibold rounded hover:from-[#004C97] hover:to-[#D2AE42] hover:opacity-90 transition ${
+                isActive("/login", pathname) ? "bg-blue-700" : ""
+              }`}
             >
               SELL ON CARYANAMS
             </Link>
@@ -621,7 +715,7 @@ const Header: React.FC = () => {
         }`}
       >
         <div className="flex justify-between items-center p-4 border-b border-gray-200">
-          <Link href="/" onClick={closeDropdownAndMobileMenu}>
+          <Link href="/" onClick={closeMobileMenu}>
             <Image
               src="/logo.png"
               alt="Caryanams"
@@ -631,7 +725,7 @@ const Header: React.FC = () => {
             />
           </Link>
           <button
-            onClick={closeDropdownAndMobileMenu}
+            onClick={closeMobileMenu}
             className="text-gray-700 hover:text-gray-900 focus:outline-none"
             aria-label="Close menu"
           >
@@ -652,16 +746,38 @@ const Header: React.FC = () => {
         </div>
         <nav className="flex flex-col p-4 space-y-4">
           {navItems.map((item) => {
-            const isActive = isNavItemActive(item);
             const isDropdownOpen = openDropdown === item.label;
+
+            let itemIsActive = false;
+            if (item.href) {
+              itemIsActive = isActive(item.href, pathname);
+            } else if (item.label === "NEW CAR") {
+              itemIsActive = pathname.startsWith("/newcar/");
+            } else if (item.label === "USED CAR") {
+              itemIsActive =
+                pathname.startsWith("/buy-used/") ||
+                pathname.startsWith("/used/buy");
+            } else if (item.submenu) {
+              itemIsActive = item.submenu.some((sub) =>
+                isActive(sub.href, pathname)
+              );
+            }
+
+            const mobileBaseClasses = "text-gray-700 font-semibold py-2";
+            const mobileActiveClasses =
+              "text-blue-600 border-l-4 border-blue-600 pl-2";
 
             if (item.label === "NEW CAR") {
               return (
                 <div key="NEW CAR" className="flex flex-col">
                   <button
-                    onClick={() => toggleDropdown("NEW CAR")}
-                    className={`flex items-center justify-between font-semibold py-2 ${
-                      isActive ? "text-blue-600" : "text-gray-700"
+                    onClick={() =>
+                      setOpenDropdown((prev) =>
+                        prev === "NEW CAR" ? null : "NEW CAR"
+                      )
+                    }
+                    className={`flex items-center justify-between ${mobileBaseClasses} ${
+                      itemIsActive ? mobileActiveClasses : ""
                     }`}
                   >
                     NEW CAR
@@ -685,8 +801,16 @@ const Header: React.FC = () => {
                           href={`/newcar/${generateBrandSlug(
                             brand.sectionData.newBrand.brandname
                           )}`}
-                          onClick={closeDropdownAndMobileMenu}
-                          className="flex items-center space-x-2 text-gray-700 hover:text-blue-600 text-sm py-1"
+                          onClick={closeMobileMenu}
+                          className={`flex items-center space-x-2 text-sm py-1 ${
+                            isActive(
+                              `/newcar/${generateBrandSlug(
+                                brand.sectionData.newBrand.brandname
+                              )}`,
+                              pathname
+                            )
+                              
+                          }`}
                         >
                           <span>{brand.sectionData.newBrand.brandname}</span>
                           <span className="text-xs text-gray-500">
@@ -696,8 +820,12 @@ const Header: React.FC = () => {
                       ))}
                       <Link
                         href="/new/models"
-                        onClick={closeDropdownAndMobileMenu}
-                        className="text-blue-600 text-sm hover:underline font-medium block py-1"
+                        onClick={closeMobileMenu}
+                        className={`text-sm font-medium block py-1 ${
+                          isActive("/new/models", pathname)
+                            ? "text-blue-600 font-semibold"
+                            : "text-gray-700 hover:text-blue-600 hover:underline"
+                        }`}
                       >
                         VIEW ALL
                       </Link>
@@ -711,9 +839,13 @@ const Header: React.FC = () => {
               return (
                 <div key="USED CAR" className="flex flex-col">
                   <button
-                    onClick={() => toggleDropdown("USED CAR")}
-                    className={`flex items-center justify-between font-semibold py-2 ${
-                      isActive ? "text-blue-600" : "text-gray-700"
+                    onClick={() =>
+                      setOpenDropdown((prev) =>
+                        prev === "USED CAR" ? null : "USED CAR"
+                      )
+                    }
+                    className={`flex items-center justify-between ${mobileBaseClasses} ${
+                      itemIsActive ? mobileActiveClasses : ""
                     }`}
                   >
                     USED CAR
@@ -740,8 +872,16 @@ const Header: React.FC = () => {
                               href={`/buy-used/${encodeURIComponent(
                                 brand.sectionData.brand.brandname.toLowerCase()
                               )}`}
-                              onClick={closeDropdownAndMobileMenu}
-                              className="flex items-center space-x-2 text-gray-700 hover:text-blue-600 text-sm py-1"
+                              onClick={closeMobileMenu}
+                              className={`flex items-center space-x-2 text-sm py-1 ${
+                                isActive(
+                                  `/buy-used/${encodeURIComponent(
+                                    brand.sectionData.brand.brandname.toLowerCase()
+                                  )}`,
+                                  pathname
+                                )
+                               
+                              }`}
                             >
                               {brand.sectionData.brand.brandimage && (
                                 <Image
@@ -757,8 +897,12 @@ const Header: React.FC = () => {
                           ))}
                         <Link
                           href="/buy-used-car"
-                          onClick={closeDropdownAndMobileMenu}
-                          className="text-blue-600 text-sm hover:underline font-medium block py-1"
+                          onClick={closeMobileMenu}
+                          className={`text-sm font-medium block py-1 ${
+                            isActive("/buy-used-car", pathname)
+                              ? "text-blue-600 font-semibold"
+                              : "text-gray-700 hover:text-blue-600 hover:underline"
+                          }`}
                         >
                           VIEW ALL
                         </Link>
@@ -782,8 +926,15 @@ const Header: React.FC = () => {
                           <Link
                             key={city}
                             href={`/used/buy?city=${city.toLowerCase()}`}
-                            onClick={closeDropdownAndMobileMenu}
-                            className="block text-sm text-gray-700 hover:text-blue-600 py-1"
+                            onClick={closeMobileMenu}
+                            className={`block text-sm py-1 ${
+                              isActive(
+                                `/used/buy?city=${city.toLowerCase()}`,
+                                pathname
+                              )
+                                ? "text-blue-600 font-semibold"
+                                : "text-gray-700 hover:text-blue-600"
+                            }`}
                           >
                             {city}
                           </Link>
@@ -803,8 +954,15 @@ const Header: React.FC = () => {
                           <Link
                             key={fuel}
                             href={`/used/buy?fuel=${fuel.toLowerCase()}`}
-                            onClick={closeDropdownAndMobileMenu}
-                            className="block bg-gray-100 px-2 py-1 rounded text-xs font-semibold text-gray-800 hover:text-blue-600 my-1"
+                            onClick={closeMobileMenu}
+                            className={`block bg-gray-100 px-2 py-1 rounded text-xs font-semibold my-1 ${
+                              isActive(
+                                `/used/buy?fuel=${fuel.toLowerCase()}`,
+                                pathname
+                              )
+                                ? "text-blue-600 bg-blue-100"
+                                : "text-gray-800 hover:text-blue-600 hover:bg-blue-50"
+                            }`}
                           >
                             {fuel}
                           </Link>
@@ -824,8 +982,17 @@ const Header: React.FC = () => {
                             href={`/used/buy?transmission=${trans
                               .toLowerCase()
                               .replace(/\s+/g, "-")}`}
-                            onClick={closeDropdownAndMobileMenu}
-                            className="block bg-gray-100 px-2 py-1 rounded text-xs font-semibold text-gray-800 hover:text-blue-600 my-1"
+                            onClick={closeMobileMenu}
+                            className={`block bg-gray-100 px-2 py-1 rounded text-xs font-semibold my-1 ${
+                              isActive(
+                                `/used/buy?transmission=${trans
+                                  .toLowerCase()
+                                  .replace(/\s+/g, "-")}`,
+                                pathname
+                              )
+                                ? "text-blue-600 bg-blue-100"
+                                : "text-gray-800 hover:text-blue-600 hover:bg-blue-50"
+                            }`}
                           >
                             {trans}
                           </Link>
@@ -840,9 +1007,13 @@ const Header: React.FC = () => {
             return item.submenu ? (
               <div key={item.label} className="flex flex-col">
                 <button
-                  onClick={() => toggleDropdown(item.label)}
-                  className={`flex items-center justify-between font-semibold py-2 ${
-                    isActive ? "text-blue-600" : "text-gray-700"
+                  onClick={() =>
+                    setOpenDropdown((prev) =>
+                      prev === item.label ? null : item.label
+                    )
+                  }
+                  className={`flex items-center justify-between ${mobileBaseClasses} ${
+                    itemIsActive ? mobileActiveClasses : ""
                   }`}
                 >
                   {item.label}
@@ -861,8 +1032,12 @@ const Header: React.FC = () => {
                       <Link
                         key={sub.label}
                         href={sub.href}
-                        onClick={closeDropdownAndMobileMenu}
-                        className="block text-gray-700 hover:text-blue-600 text-sm py-1"
+                        onClick={closeMobileMenu}
+                        className={`block text-sm py-1 ${
+                          isActive(sub.href, pathname)
+                            ? "text-blue-600 font-semibold"
+                            : "text-gray-700 hover:text-blue-600"
+                        }`}
                       >
                         {sub.label}
                       </Link>
@@ -874,11 +1049,9 @@ const Header: React.FC = () => {
               <Link
                 key={item.label}
                 href={item.href!}
-                onClick={closeDropdownAndMobileMenu}
-                className={`font-semibold py-2 ${
-                  isActive
-                    ? "text-blue-600"
-                    : "text-gray-700 hover:text-blue-600"
+                onClick={closeMobileMenu}
+                className={`${mobileBaseClasses} ${
+                  itemIsActive ? mobileActiveClasses : ""
                 }`}
               >
                 {item.label}
@@ -887,8 +1060,10 @@ const Header: React.FC = () => {
           })}
           <Link
             href="/login"
-            onClick={closeDropdownAndMobileMenu}
-            className="inline-block px-4 py-2 bg-gradient-to-r from-blue-600 to-green-500 text-white font-semibold rounded hover:from-blue-700 hover:to-green-600 transition text-center"
+            onClick={closeMobileMenu}
+            className={`inline-block px-4 py-2 bg-gradient-to-r from-blue-600 to-green-500 text-white font-semibold rounded hover:from-blue-700 hover:to-green-600 transition text-center ${
+              isActive("/login", pathname) ? "bg-blue-700" : ""
+            }`}
             aria-label="Sell on Caryanams"
           >
             SELL ON CARYANAMS

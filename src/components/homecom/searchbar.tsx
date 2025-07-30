@@ -125,13 +125,7 @@ export default function SearchBar() {
       if (cachedBrands) {
         const brandData = cachedBrands.data.filter(isBrand);
         setBrands(brandData);
-        console.log(
-          "Using cached brands from Header:",
-          brandData.map((b) => ({
-            _id: b._id,
-            brandname: b.sectionData.brand.brandname,
-          }))
-        );
+        
       } else {
         // Fallback to API if no cache (should be rare since Header fetches it)
         try {
@@ -144,13 +138,7 @@ export default function SearchBar() {
             const brandData = brandResponse.filter(isBrand);
             setBrands(brandData);
             setCachedData(CACHE_KEY_BRANDS, brandData);
-            console.log(
-              "Fetched brands:",
-              brandData.map((b) => ({
-                _id: b._id,
-                brandname: b.sectionData.brand.brandname,
-              }))
-            );
+           
           }
         } catch (err) {
           setError("Failed to load brands");
@@ -163,14 +151,7 @@ export default function SearchBar() {
       if (cachedModels) {
         const modelData = cachedModels.data.filter(isModel);
         setModels(modelData);
-        console.log(
-          "Using cached models:",
-          modelData.map((m) => ({
-            _id: m._id,
-            name: m.sectionData.model.name,
-            companyId: m.sectionData.model.companyId,
-          }))
-        );
+      
       } else {
         // Fetch models if no cache
         try {
@@ -183,14 +164,7 @@ export default function SearchBar() {
             const modelData = modelResponse.filter(isModel);
             setModels(modelData);
             setCachedData(CACHE_KEY_MODELS, modelData);
-            console.log(
-              "Fetched models:",
-              modelData.map((m) => ({
-                _id: m._id,
-                name: m.sectionData.model.name,
-                companyId: m.sectionData.model.companyId,
-              }))
-            );
+           
           }
         } catch (err) {
           setError("Failed to load models");
@@ -212,7 +186,6 @@ export default function SearchBar() {
           b.sectionData.brand.brandname.toLowerCase().trim() ===
           make.toLowerCase().trim()
       );
-      console.log("Selected brand:", { make, selectedBrand });
       if (selectedBrand) {
         const filtered = models.filter(
           (m) => m.sectionData.model.companyId === selectedBrand._id
@@ -225,13 +198,7 @@ export default function SearchBar() {
             ])
           ).values()
         );
-        console.log(
-          "Filtered models:",
-          uniqueModels.map((m) => ({
-            id: m._id,
-            name: m.sectionData.model.name,
-          }))
-        );
+       
         setFilteredModels(uniqueModels);
       } else {
         setFilteredModels([]);
@@ -256,7 +223,6 @@ export default function SearchBar() {
     const searchUrl = `/buy-used${make ? `/${encodeURIComponent(make)}` : ""}${
       model ? `/${encodeURIComponent(model)}` : ""
     }${city ? `/${encodeURIComponent(city)}` : ""}`;
-    console.log("Navigating to search URL:", searchUrl);
     router.push(searchUrl);
   };
 

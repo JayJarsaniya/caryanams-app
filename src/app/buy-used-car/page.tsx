@@ -1,10 +1,11 @@
 "use client";
 
-import React, { useState, useEffect, Suspense } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { useParams } from "next/navigation";
 import { fetchFromAPI } from "@/lib/api";
+import { MatchCondition, LookupStage } from "@/types/types";
+
 import {
   FaGasPump,
   FaTachometerAlt,
@@ -35,16 +36,6 @@ interface UsedCar {
   };
 }
 
-interface Brand {
-  _id: string;
-  sectionData: { brand: { brandname: string } };
-}
-
-interface Model {
-  _id: string;
-  sectionData: { model: { name: string; companyId: string } };
-}
-
 function isUsedCar(obj: unknown): obj is UsedCar {
   return (
     !!obj &&
@@ -63,25 +54,6 @@ function isUsedCar(obj: unknown): obj is UsedCar {
     typeof (obj as UsedCar).sectionData.usedcar.color === "string" &&
     typeof (obj as UsedCar).sectionData.usedcar.isfeatured === "boolean" &&
     typeof (obj as UsedCar).sectionData.usedcar.company === "string"
-  );
-}
-
-function isBrand(obj: unknown): obj is Brand {
-  return (
-    !!obj &&
-    typeof (obj as Brand)._id === "string" &&
-    !!(obj as Brand).sectionData?.brand &&
-    typeof (obj as Brand).sectionData.brand.brandname === "string"
-  );
-}
-
-function isModel(obj: unknown): obj is Model {
-  return (
-    !!obj &&
-    typeof (obj as Model)._id === "string" &&
-    !!(obj as Model).sectionData?.model &&
-    typeof (obj as Model).sectionData.model.name === "string" &&
-    typeof (obj as Model).sectionData.model.companyId === "string"
   );
 }
 
@@ -200,7 +172,14 @@ const FilterSection = ({
       onClick={() => setIsOpen(!isOpen)}
       aria-label={`Toggle ${title} filter`}
     >
-      <span className="font-semibold text-sm text-gray-800">{title}</span>
+      <span className="font-semibold text-sm text-gray-800">
+        {title}
+        {selectedOptions.length > 0 && (
+          <span className="ml-2 text-blue-600 text-xs">
+            ({selectedOptions.length})
+          </span>
+        )}
+      </span>
       <span className="text-red-600 font-bold text-lg">
         {isOpen ? "−" : "+"}
       </span>
@@ -253,28 +232,27 @@ const CarCardSkeleton = () => (
   </div>
 );
 
-const BuyUsedCarPageContent = () => {
-  const params = useParams() as { slug?: string[] };
-  const slug = params.slug || [];
-  const [brandName, modelName, city] = slug.map(decodeURIComponent);
+interface MatchStage {
+  $match: MatchCondition | { $and: MatchCondition[] };
+}
 
+const FilterPageContent = () => {
   const [cars, setCars] = useState<UsedCar[]>([]);
-  const [filteredCars, setFilteredCars] = useState<UsedCar[]>([]);
-  // The displayBrandName and displayModelName are not strictly necessary if you're always showing all cars
-  // but keeping them for consistency and potential future filtering based on direct navigation
-  const [displayBrandName, setDisplayBrandName] = useState("");
-  const [displayModelName, setDisplayModelName] = useState("");
+  const [totalFilteredCount, setTotalFilteredCount] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [loadingCount, setLoadingCount] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const carsPerPage = 12;
 
+  // Filter states
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [fuelOpen, setFuelOpen] = useState(false);
   const [transmissionOpen, setTransmissionOpen] = useState(false);
   const [priceOpen, setPriceOpen] = useState(false);
   const [regYearOpen, setRegYearOpen] = useState(false);
   const [colorOpen, setColorOpen] = useState(false);
+
   const [selectedFuelTypes, setSelectedFuelTypes] = useState<string[]>([]);
   const [selectedTransmissions, setSelectedTransmissions] = useState<string[]>(
     []
@@ -283,128 +261,212 @@ const BuyUsedCarPageContent = () => {
   const [selectedRegYears, setSelectedRegYears] = useState<string[]>([]);
   const [selectedColors, setSelectedColors] = useState<string[]>([]);
 
+  // Filter options derived from cars
+  const [filterOptions, setFilterOptions] = useState<{
+    fuelTypes: string[];
+    transmissions: string[];
+    regYears: string[];
+    colors: string[];
+  }>({
+    fuelTypes: [],
+    transmissions: [],
+    regYears: [],
+    colors: [],
+  });
+
+  // useRef to track if filters have changed
+  const prevFilterDeps = useRef<string>("");
+
+  // Effect to load initial data and set filter options
   useEffect(() => {
     async function loadData() {
-      setLoading(true);
-      setError(null);
-
       try {
-        let allCars: UsedCar[] = [];
-        let brands: Brand[] = [];
-        let models: Model[] = [];
+        setLoading(true);
 
-        // Always fetch all cars when on the /buy-used-car page
-        const carData = await fetchFromAPI<UsedCar>({
+        // Build match conditions based on sidebar filters
+        const currentMatchConditions: MatchCondition[] = [];
+
+        // Apply sidebar filters
+        if (selectedFuelTypes.length > 0) {
+          currentMatchConditions.push({
+            "sectionData.usedcar.fueltype": { $in: selectedFuelTypes },
+          });
+        }
+        if (selectedTransmissions.length > 0) {
+          currentMatchConditions.push({
+            "sectionData.usedcar.transmission": { $in: selectedTransmissions },
+          });
+        }
+        if (selectedRegYears.length > 0) {
+          currentMatchConditions.push({
+            "sectionData.usedcar.registrationyear": { $in: selectedRegYears },
+          });
+        }
+        if (selectedColors.length > 0) {
+          currentMatchConditions.push({
+            "sectionData.usedcar.color": { $in: selectedColors },
+          });
+        }
+        if (selectedPriceRanges.length > 0) {
+          const priceConditions: MatchCondition[] = [];
+          selectedPriceRanges.forEach((range) => {
+            if (range === "Below ₹5 Lakh") {
+              priceConditions.push({
+                $expr: {
+                  $lt: [
+                    { $toDouble: "$sectionData.usedcar.baseprice" },
+                    500000,
+                  ],
+                },
+              });
+            } else if (range === "₹5 - ₹10 Lakh") {
+              priceConditions.push({
+                $and: [
+                  {
+                    $expr: {
+                      $gte: [
+                        { $toDouble: "$sectionData.usedcar.baseprice" },
+                        500000,
+                      ],
+                    },
+                  },
+                  {
+                    $expr: {
+                      $lte: [
+                        { $toDouble: "$sectionData.usedcar.baseprice" },
+                        1000000,
+                      ],
+                    },
+                  },
+                ],
+              });
+            } else if (range === "₹10 - ₹15 Lakh") {
+              priceConditions.push({
+                $and: [
+                  {
+                    $expr: {
+                      $gte: [
+                        { $toDouble: "$sectionData.usedcar.baseprice" },
+                        1000000,
+                      ],
+                    },
+                  },
+                  {
+                    $expr: {
+                      $lte: [
+                        { $toDouble: "$sectionData.usedcar.baseprice" },
+                        1500000,
+                      ],
+                    },
+                  },
+                ],
+              });
+            } else if (range === "Above ₹15 Lakh") {
+              priceConditions.push({
+                $expr: {
+                  $gt: [
+                    { $toDouble: "$sectionData.usedcar.baseprice" },
+                    1500000,
+                  ],
+                },
+              });
+            }
+          });
+          if (priceConditions.length > 0) {
+            currentMatchConditions.push({ $or: priceConditions });
+          }
+        }
+
+        const matchStageFilter: MatchStage["$match"] =
+          currentMatchConditions.length ? { $and: currentMatchConditions } : {};
+
+        // Generate a string representation of current filters to check for changes
+        const currentFilterDeps = JSON.stringify({
+          selectedFuelTypes,
+          selectedTransmissions,
+          selectedPriceRanges,
+          selectedRegYears,
+          selectedColors,
+        });
+
+        // Only fetch count if filters have changed
+        if (currentFilterDeps !== prevFilterDeps.current) {
+          setLoadingCount(true);
+          const countLookups: LookupStage[] = [{ $match: matchStageFilter }];
+          const countData = await fetchFromAPI<UsedCar>({
+            dbName: "caryanams",
+            collectionName: "usedcar",
+            lookups: countLookups,
+            projection: { _id: 1 },
+          });
+          const filteredCount = Array.isArray(countData) ? countData.length : 0;
+          setTotalFilteredCount(filteredCount);
+          setLoadingCount(false);
+          setCurrentPage(1); // Reset to first page when filters change
+          prevFilterDeps.current = currentFilterDeps;
+        }
+
+        // Fetch paginated cars
+        const lookups: LookupStage[] = [
+          { $match: matchStageFilter },
+          { $skip: (currentPage - 1) * carsPerPage },
+          { $limit: carsPerPage },
+        ];
+
+        const projection = {
+          "sectionData.usedcar.carname": 1,
+          "sectionData.usedcar.fueltype": 1,
+          "sectionData.usedcar.kilometerdriven": 1,
+          "sectionData.usedcar.transmission": 1,
+          "sectionData.usedcar.baseprice": 1,
+          "sectionData.usedcar.registrationcity": 1,
+          "sectionData.usedcar.ownership": 1,
+          "sectionData.usedcar.images": 1,
+          "sectionData.usedcar.model": 1,
+          "sectionData.usedcar.registrationyear": 1,
+          "sectionData.usedcar.color": 1,
+          "sectionData.usedcar.isfeatured": 1,
+          "sectionData.usedcar.company": 1,
+        };
+
+        const data = await fetchFromAPI<UsedCar>({
           dbName: "caryanams",
           collectionName: "usedcar",
-          limit: 0,
-          filters: {},
+          lookups,
+          projection,
         });
-        allCars = Array.isArray(carData) ? carData.filter(isUsedCar) : [];
-        setCars(allCars);
-        setFilteredCars(allCars);
 
-        // Fetch brands and models for display names if slugs are present
-        if (slug.length > 0) {
-          const cachedBrands = localStorage.getItem("caryanams_brands");
-          if (cachedBrands) {
-            const { data, timestamp } = JSON.parse(cachedBrands);
-            const isFresh = Date.now() - timestamp < 24 * 60 * 60 * 1000;
-            if (isFresh) {
-              brands = Array.isArray(data) ? data.filter(isBrand) : [];
-            }
-          }
+        const validCars = Array.isArray(data) ? data.filter(isUsedCar) : [];
+        setCars(validCars);
 
-          const cachedModels = localStorage.getItem("caryanams_models");
-          if (cachedModels) {
-            const { data, timestamp } = JSON.parse(cachedModels);
-            const isFresh = Date.now() - timestamp < 24 * 60 * 60 * 1000;
-            if (isFresh) {
-              models = Array.isArray(data) ? data.filter(isModel) : [];
-            }
-          }
+        // Update filter options based on fetched cars
+        const fuelTypes = Array.from(
+          new Set(
+            validCars.map((car) => car.sectionData.usedcar.fueltype.trim())
+          )
+        ).sort();
+        const transmissions = Array.from(
+          new Set(
+            validCars.map((car) => car.sectionData.usedcar.transmission.trim())
+          )
+        ).sort();
+        const regYears = Array.from(
+          new Set(
+            validCars.map((car) =>
+              car.sectionData.usedcar.registrationyear.trim()
+            )
+          )
+        ).sort((a, b) => parseInt(b) - parseInt(a));
+        const colors = Array.from(
+          new Set(validCars.map((car) => car.sectionData.usedcar.color.trim()))
+        ).sort();
 
-          if (!brands.length || !models.length) {
-            const [brandRes, modelRes] = await Promise.all([
-              brands.length
-                ? Promise.resolve(brands)
-                : fetchFromAPI<Brand>({
-                    dbName: "caryanams",
-                    collectionName: "brand",
-                    limit: 0,
-                  }),
-              models.length
-                ? Promise.resolve(models)
-                : fetchFromAPI<Model>({
-                    dbName: "caryanams",
-                    collectionName: "model",
-                    limit: 0,
-                  }),
-            ]);
-            brands = Array.isArray(brandRes) ? brandRes.filter(isBrand) : [];
-            models = Array.isArray(modelRes) ? modelRes.filter(isModel) : [];
-
-            if (!cachedBrands || !cachedBrands.includes("timestamp")) {
-              localStorage.setItem(
-                "caryanams_brands",
-                JSON.stringify({ data: brands, timestamp: Date.now() })
-              );
-            }
-            if (!cachedModels || !cachedModels.includes("timestamp")) {
-              localStorage.setItem(
-                "caryanams_models",
-                JSON.stringify({ data: models, timestamp: Date.now() })
-              );
-            }
-          }
-
-          const selectedBrand = brandName
-            ? brands.find(
-                (b) =>
-                  b.sectionData.brand.brandname.toLowerCase().trim() ===
-                  brandName.toLowerCase().trim()
-              )
-            : null;
-          setDisplayBrandName(
-            selectedBrand
-              ? selectedBrand.sectionData.brand.brandname
-              : brandName || ""
-          );
-
-          const selectedModel = modelName
-            ? models.find(
-                (m) =>
-                  m.sectionData.model.name.toLowerCase().trim() ===
-                    modelName.toLowerCase().trim() &&
-                  (!selectedBrand ||
-                    m.sectionData.model.companyId === selectedBrand._id)
-              )
-            : null;
-          setDisplayModelName(
-            selectedModel
-              ? selectedModel.sectionData.model.name
-              : modelName || ""
-          );
-
-          // Apply URL-based filters
-          const urlFiltered = allCars.filter((car) => {
-            const carBrandId = car.sectionData.usedcar.company;
-            const carModelId = car.sectionData.usedcar.model;
-            const carCity = car.sectionData.usedcar.registrationcity
-              .toLowerCase()
-              .trim();
-
-            const brandMatch =
-              !brandName || (selectedBrand && carBrandId === selectedBrand._id);
-            const modelMatch =
-              !modelName || (selectedModel && carModelId === selectedModel._id);
-            const cityMatch = !city || carCity === city.toLowerCase().trim();
-
-            return brandMatch && modelMatch && cityMatch;
-          });
-          setFilteredCars(urlFiltered);
-          setCars(urlFiltered);
-        }
+        setFilterOptions({
+          fuelTypes,
+          transmissions,
+          regYears,
+          colors,
+        });
       } catch (err) {
         console.error("Error fetching data:", err);
         setError("Failed to load cars. Please try again.");
@@ -414,52 +476,8 @@ const BuyUsedCarPageContent = () => {
     }
 
     loadData();
-  }, [slug.length, brandName, modelName, city]); // Added brandName, modelName, city
-  useEffect(() => {
-    // This effect handles the sidebar filtering
-    const filtered = cars.filter((car) => {
-      const { usedcar } = car.sectionData;
-      const price = parseInt(usedcar.baseprice.replace(/[^\d]/g, ""));
-      return (
-        (!selectedFuelTypes.length ||
-          selectedFuelTypes.some(
-            (fuelType) =>
-              fuelType.toLowerCase().trim() ===
-              usedcar.fueltype.toLowerCase().trim()
-          )) &&
-        (!selectedTransmissions.length ||
-          selectedTransmissions.some(
-            (transmission) =>
-              transmission.toLowerCase().trim() ===
-              usedcar.transmission.toLowerCase().trim()
-          )) &&
-        (!selectedPriceRanges.length ||
-          selectedPriceRanges.some((range) => {
-            if (range === "Below ₹5 Lakh") return price < 500000;
-            if (range === "₹5 - ₹10 Lakh")
-              return price >= 500000 && price <= 1000000;
-            if (range === "₹10 - ₹15 Lakh")
-              return price > 1000000 && price <= 1500000;
-            if (range === "Above ₹15 Lakh") return price > 1500000;
-            return true;
-          })) &&
-        (!selectedRegYears.length ||
-          selectedRegYears.some(
-            (year) =>
-              year.toLowerCase().trim() ===
-              usedcar.registrationyear.toLowerCase().trim()
-          )) &&
-        (!selectedColors.length ||
-          selectedColors.some(
-            (color) =>
-              color.toLowerCase().trim() === usedcar.color.toLowerCase().trim()
-          ))
-      );
-    });
-    setFilteredCars(filtered);
-    setCurrentPage(1); // Reset to first page on filter change
   }, [
-    cars, // Now depends on 'cars' which is the *initially loaded set* or URL-filtered set
+    currentPage,
     selectedFuelTypes,
     selectedTransmissions,
     selectedPriceRanges,
@@ -467,34 +485,12 @@ const BuyUsedCarPageContent = () => {
     selectedColors,
   ]);
 
-  const uniqueFuelTypes = Array.from(
-    new Set(cars.map((car) => car.sectionData.usedcar.fueltype.trim())).values()
-  ).sort();
-  const uniqueTransmissions = Array.from(
-    new Set(
-      cars.map((car) => car.sectionData.usedcar.transmission.trim())
-    ).values()
-  ).sort();
-  const uniqueRegYears = Array.from(
-    new Set(
-      cars.map((car) => car.sectionData.usedcar.registrationyear.trim())
-    ).values()
-  ).sort((a, b) => parseInt(b) - parseInt(a));
-  const uniqueColors = Array.from(
-    new Set(cars.map((car) => car.sectionData.usedcar.color.trim())).values()
-  ).sort();
-
   const handlePageChange = (page: number) => {
     setCurrentPage(page);
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
-  // Pagination now uses filteredCars.length
-  const totalPages = Math.ceil(filteredCars.length / carsPerPage);
-  const paginatedCars = filteredCars.slice(
-    (currentPage - 1) * carsPerPage,
-    currentPage * carsPerPage
-  );
+  const totalPages = Math.ceil(totalFilteredCount / carsPerPage);
 
   function generateCarSlug(car: UsedCar): string {
     const carData = car.sectionData.usedcar;
@@ -512,6 +508,25 @@ const BuyUsedCarPageContent = () => {
     return parts.join("-");
   }
 
+  const clearAllFilters = () => {
+    setSelectedFuelTypes([]);
+    setSelectedTransmissions([]);
+    setSelectedPriceRanges([]);
+    setSelectedRegYears([]);
+    setSelectedColors([]);
+    setCurrentPage(1); // Reset page to 1 when clearing filters
+  };
+
+  const getTotalSelectedFilters = () => {
+    return (
+      selectedFuelTypes.length +
+      selectedTransmissions.length +
+      selectedPriceRanges.length +
+      selectedRegYears.length +
+      selectedColors.length
+    );
+  };
+
   if (error) {
     return (
       <div className="text-center text-red-600 py-8">
@@ -527,23 +542,38 @@ const BuyUsedCarPageContent = () => {
     <div className="bg-[#f5f5f5] min-h-screen p-4 lg:p-10">
       <header className="mb-6">
         <h1 className="text-2xl font-bold text-gray-800">Find Your Car</h1>
-        <p className="text-sm text-gray-600">
-          Filtered by:{brandName ? ` ${displayBrandName}` : ""}
-          {modelName ? ` ${displayModelName}` : ""}
-          {city ? ` in ${city}` : ""}
-        </p>
-        <p className="text-sm text-gray-500">
-          Found {filteredCars.length} cars
-        </p>
+        <p className="text-sm text-gray-600">All Used Cars</p>
+        <div className="flex items-center gap-4 mt-2">
+          <p className="text-sm text-gray-500">
+            {loadingCount ? (
+              <span className="animate-pulse">Loading count...</span>
+            ) : (
+              `Found ${totalFilteredCount.toLocaleString()} cars`
+            )}
+          </p>
+          {getTotalSelectedFilters() > 0 && (
+            <button
+              onClick={clearAllFilters}
+              className="text-xs text-red-600 hover:text-red-800 underline"
+            >
+              Clear all filters ({getTotalSelectedFilters()})
+            </button>
+          )}
+        </div>
       </header>
 
       <div className="lg:hidden flex justify-end mb-4">
         <button
           onClick={() => setSidebarOpen(!sidebarOpen)}
-          className="px-4 py-2 bg-blue-600 text-white rounded-md font-semibold hover:bg-blue-700 transition"
+          className="px-4 py-2 bg-blue-600 text-white rounded-md font-semibold hover:bg-blue-700 transition relative"
           aria-label={sidebarOpen ? "Close filters" : "Show filters"}
         >
           {sidebarOpen ? "Close Filters" : "Show Filters"}
+          {getTotalSelectedFilters() > 0 && (
+            <span className="absolute -top-2 -right-2 bg-red-600 text-white text-xs rounded-full h-5 w-5 flex items-center justify-center">
+              {getTotalSelectedFilters()}
+            </span>
+          )}
         </button>
       </div>
 
@@ -551,13 +581,13 @@ const BuyUsedCarPageContent = () => {
         <div
           className={`${
             sidebarOpen ? "block" : "hidden"
-          } lg:block w-full lg:w-1/4 space-y-4 bg-white lg:bg-transparent p-4 lg:p-0 rounded-lg lg:rounded-none shadow-lg lg:shadow-none absolute top-0 left-0 z-40 lg:static sticky`}
+          } lg:block w-full lg:w-1/4 space-y-4 bg-white lg:bg-transparent p-4 lg:p-0 rounded-lg lg:rounded-none shadow-lg lg:shadow-none sticky top-4 z-40 lg:static`}
         >
           <FilterSection
             title="Fuel Type"
             isOpen={fuelOpen}
             setIsOpen={setFuelOpen}
-            options={uniqueFuelTypes}
+            options={filterOptions.fuelTypes}
             selectedOptions={selectedFuelTypes}
             setSelectedOptions={setSelectedFuelTypes}
             ariaLabelPrefix="Filter by fuel type"
@@ -566,7 +596,7 @@ const BuyUsedCarPageContent = () => {
             title="Transmission"
             isOpen={transmissionOpen}
             setIsOpen={setTransmissionOpen}
-            options={uniqueTransmissions}
+            options={filterOptions.transmissions}
             selectedOptions={selectedTransmissions}
             setSelectedOptions={setSelectedTransmissions}
             ariaLabelPrefix="Filter by transmission"
@@ -589,7 +619,7 @@ const BuyUsedCarPageContent = () => {
             title="Registration Year"
             isOpen={regYearOpen}
             setIsOpen={setRegYearOpen}
-            options={uniqueRegYears}
+            options={filterOptions.regYears}
             selectedOptions={selectedRegYears}
             setSelectedOptions={setSelectedRegYears}
             ariaLabelPrefix="Filter by registration year"
@@ -598,7 +628,7 @@ const BuyUsedCarPageContent = () => {
             title="Color"
             isOpen={colorOpen}
             setIsOpen={setColorOpen}
-            options={uniqueColors}
+            options={filterOptions.colors}
             selectedOptions={selectedColors}
             setSelectedOptions={setSelectedColors}
             ariaLabelPrefix="Filter by color"
@@ -612,19 +642,29 @@ const BuyUsedCarPageContent = () => {
                 <CarCardSkeleton key={index} />
               ))}
             </div>
-          ) : filteredCars.length === 0 ? (
+          ) : cars.length === 0 ? (
             <div className="text-center text-gray-600 py-8">
-              No cars found for the selected filters.
+              <p className="text-lg mb-4">
+                No cars found for the selected filters.
+              </p>
+              {getTotalSelectedFilters() > 0 && (
+                <button
+                  onClick={clearAllFilters}
+                  className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition"
+                >
+                  Clear All Filters
+                </button>
+              )}
             </div>
           ) : (
             <>
               <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-6">
-                {paginatedCars.map((car) => {
+                {cars.map((car) => {
                   const slug = generateCarSlug(car);
                   return (
                     <div
                       key={car._id}
-                      className="bg-white rounded-xl shadow border overflow-hidden"
+                      className="bg-white rounded-xl shadow border overflow-hidden hover:shadow-lg transition-shadow"
                     >
                       <Image
                         src={
@@ -637,7 +677,7 @@ const BuyUsedCarPageContent = () => {
                         className="object-cover w-full h-56"
                       />
                       <div className="p-4">
-                        <h3 className="text-sm font-semibold mb-1">
+                        <h3 className="text-sm font-semibold mb-1 line-clamp-2">
                           {car.sectionData.usedcar.carname}
                         </h3>
                         <div className="text-xs text-gray-600 flex items-center gap-2 mb-2">
@@ -665,14 +705,14 @@ const BuyUsedCarPageContent = () => {
                             ).toLocaleString("en-IN")}
                           </span>
                           <button
-                            className="flex items-center gap-1 text-red-600 border border-red-500 px-3 py-1 text-xs rounded hover:bg-red-100"
+                            className="flex items-center gap-1 text-red-600 border border-red-500 px-3 py-1 text-xs rounded hover:bg-red-100 transition"
                             aria-label={`Make an offer for ${car.sectionData.usedcar.carname}`}
                           >
                             <MdLocalOffer /> MAKE OFFER
                           </button>
                         </div>
                         <Link href={`/used/${slug}/${car._id}`}>
-                          <button className="w-full bg-gradient-to-r from-[#004c97] to-[#d2ae42] text-white py-2 rounded-md flex justify-center items-center gap-2">
+                          <button className="w-full bg-gradient-to-r from-[#004c97] to-[#d2ae42] text-white py-2 rounded-md flex justify-center items-center gap-2 hover:opacity-90 transition">
                             <FaPhoneAlt /> Contact Seller
                           </button>
                         </Link>
@@ -696,10 +736,6 @@ const BuyUsedCarPageContent = () => {
   );
 };
 
-export default function BuyUsedCarPage() {
-  return (
-    <Suspense fallback={<div className="text-center py-8">Loading...</div>}>
-      <BuyUsedCarPageContent />
-    </Suspense>
-  );
+export default function SearchResultsPage() {
+  return FilterPageContent();
 }

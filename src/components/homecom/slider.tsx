@@ -68,29 +68,16 @@ export default function PremiumClients() {
           const images = trendingBrands
             .filter((brand) => brand.sectionData.brand.brandimage)
             .map((brand) => ({ image: brand.sectionData.brand.brandimage }));
-          console.log(
-            "Using localStorage brands cache (filtered trending):",
-            images.map((item) => item.image)
-          );
+
           setBrandImages(images);
         } else {
           // Fallback to API if no cache
           const result: Brand[] = await fetchFromAPI<Brand>({
             dbName: "caryanams",
             collectionName: "brand",
-            filters: { "sectionData.brand.trending": true },
+            query: { "sectionData.brand.trending": true },
             limit: 0,
           });
-
-          console.log(
-            "Fetched brands data from API (filtered trending):",
-            result.map((brand) => ({
-              _id: brand._id,
-              brandname: brand.sectionData.brand.brandname,
-              brandimage: brand.sectionData.brand.brandimage,
-              trending: brand.sectionData.brand.trending,
-            }))
-          );
 
           if (result && Array.isArray(result)) {
             const images = result
